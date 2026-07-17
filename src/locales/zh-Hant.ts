@@ -49,7 +49,15 @@ export const t = {
   },
   validationFormatTitle: "產出格式檢查",
   validationFormatOk: "格式檢查通過，可安心閱讀與微調。",
-  validationErrors: (n: number) => `發現 ${n} 項格式問題（已嘗試自動修復）`,
+  validationErrors: (
+    n: number,
+    repairStatus: "not_needed" | "succeeded" | "failed" | null,
+  ) =>
+    repairStatus === "succeeded"
+      ? `自動修復後仍有 ${n} 項品質問題`
+      : repairStatus === "failed"
+        ? `自動修復未成功，仍有 ${n} 項品質問題`
+        : `發現 ${n} 項品質問題`,
   validationWarnings: (n: number) => `另有 ${n} 項建議留意`,
   errors: {
     generic: "發生未知錯誤，請稍後再試。",

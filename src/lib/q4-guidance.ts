@@ -194,7 +194,7 @@ export function buildGuidedQ4(
     ? "不用背課本句子；說清楚這個概念能幫你看懂或處理什麼。"
     : "先說問題和兩個重要線索，不用猜老師想要的標準答案。";
   const transferPrompt = junior
-    ? `現在把同一個做法用到「${lifeTheme}」的另一個情況。遇到「${constraint}」時，要改哪一步？還要看什麼結果，才能知道做法有用？`
+    ? `現在把同一個做法用到「${lifeTheme}」的另一個情況。遇到「${constraint}」時，要調整哪一步？還要看什麼結果，才能知道做法有用？`
     : `現在把同一個方法用到「${lifeTheme}」的另一個生活情況。遇到「${constraint}」時，你會調整哪個步驟？還要蒐集什麼結果或回饋，才能確認做法有效？`;
 
   return {

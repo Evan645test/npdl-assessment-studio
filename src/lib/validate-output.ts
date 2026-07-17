@@ -1,6 +1,10 @@
 import { splitModules } from "@/lib/markdown";
 import { parseAssessmentModule, parseGuidedQ4Text } from "@/lib/parse-assessment";
 import { GUIDED_Q4_LABELS } from "@/lib/q4-guidance";
+import {
+  QUESTION_ABILITY_CONTRACTS,
+  questionStemSatisfiesContract,
+} from "@/lib/question-contracts";
 import type { AssessmentTarget, CourseForm } from "@/types";
 
 export interface ValidationIssue {
@@ -122,12 +126,6 @@ const ESCAPE_OPTION_PATTERNS = [
   /無法判斷/,
   /不需要處理/,
 ] as const;
-
-const QUESTION_AXIS_CUES = {
-  1: ["問題", "概念", "方法", "理解", "原因", "關係", "重點", "影響", "線索"],
-  2: [...Q4_STEP_TWO_ACTION_CUES],
-  3: ["生活", "另一", "新的", "新情境", "如果", "限制", "改變", "調整", "換"],
-} as const;
 
 const EXPECTED_SCORES: Record<1 | 2 | 3, number[]> = {
   1: [-1, 1, 2, 3],
@@ -499,12 +497,12 @@ function validateQuestionQuality(
   for (const q of [1, 2, 3] as const) {
     const section = getQuestionSection(block, q);
     if (!section) continue;
-    const expectedTitle = ["概念理解題", "行動應用題", "生活遷移題"][q - 1];
+    const expectedTitle = `${QUESTION_ABILITY_CONTRACTS[q].label}題`;
     if (!section.includes(`[${expectedTitle}]`)) {
       errors.push(`${label} Q${q} 必須對應「${expectedTitle.replace("題", "")}」能力欄位`);
     }
     const stem = extractQuestionStem(section);
-    if (!includesAny(stem, QUESTION_AXIS_CUES[q])) {
+    if (!questionStemSatisfiesContract(stem, q)) {
       errors.push(`${label} Q${q} 題幹未明確引出「${expectedTitle.replace("題", "")}」能力`);
     }
 

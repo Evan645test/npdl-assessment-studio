@@ -21,6 +21,7 @@ describe("generateAssessment request budget and repair", () => {
 
     expect(generate).toHaveBeenCalledTimes(1);
     expect(result.repairUsed).toBe(false);
+    expect(result.repairStatus).toBe("not_needed");
     expect(result.validation.errors).toEqual([]);
     expect(result.markdown).toBe(canonical);
     expect(generate.mock.calls[0][0]).toMatchObject({
@@ -36,6 +37,7 @@ describe("generateAssessment request budget and repair", () => {
 
     expect(generate).toHaveBeenCalledTimes(1);
     expect(result.repairUsed).toBe(false);
+    expect(result.repairStatus).toBe("not_needed");
     expect(result.validation.errors).toEqual([]);
     expect(result.markdown).toBe(renderAssessmentMarkdown(TEST_ASSESSMENT_DOCUMENT, TEST_FORM));
   });
@@ -57,9 +59,32 @@ describe("generateAssessment request budget and repair", () => {
 
     expect(generate).toHaveBeenCalledTimes(1);
     expect(result.repairUsed).toBe(false);
+    expect(result.repairStatus).toBe("not_needed");
     expect(result.validation.errors).toEqual([]);
     expect(result.markdown).toContain('"decisionTask":"判斷哪一份紀錄較能支持目前的結論"');
     expect(result.markdown).toContain('"decisionTask":"比較哪一份紀錄較能支持目前的結論"');
+  });
+
+  it("normalizes cue-free Q1–Q3 stems before validation without a repair request", async () => {
+    const generated = structuredClone(TEST_ASSESSMENT_DOCUMENT);
+    for (const type of ["pre", "post"] as const) {
+      generated[type].q1.stem = "面對這些資料時，哪一項最值得先注意";
+      generated[type].q2.stem = "面對這些資料時，哪一項最適合";
+      generated[type].q3.stem = "面對這些資料時，哪一項最可靠";
+    }
+    const generate = vi.fn<AssessmentGenerateFn>().mockResolvedValue(JSON.stringify(generated));
+
+    const result = await generateAssessment(input, generate);
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.repairUsed).toBe(false);
+    expect(result.repairStatus).toBe("not_needed");
+    expect(result.validation.errors).toEqual([]);
+    expect(result.document.pre.q1.stem).toContain("哪一項最值得先注意");
+    expect(result.document.pre.q1.stem).toContain("理解目前的問題");
+    expect(result.document.pre.q3.stem).toContain("新的生活情境");
+    expect(result.document.post.q3.stem).toContain("哪一項最可靠");
+    expect(result.document.pre.q1.options).toEqual(generated.pre.q1.options);
   });
 
   it("repairs only the failing field and never sends requests in parallel", async () => {
@@ -87,6 +112,7 @@ describe("generateAssessment request budget and repair", () => {
     expect(generate).toHaveBeenCalledTimes(2);
     expect(maxActive).toBe(1);
     expect(result.repairUsed).toBe(true);
+    expect(result.repairStatus).toBe("succeeded");
     expect(result.validation.errors).toEqual([]);
     expect(result.markdown).toBe(renderAssessmentMarkdown(TEST_ASSESSMENT_DOCUMENT, TEST_FORM));
     const secondOptions = generate.mock.calls[1][5];
@@ -105,6 +131,7 @@ describe("generateAssessment request budget and repair", () => {
     const result = await generateAssessment(input, generate);
     expect(generate).toHaveBeenCalledTimes(2);
     expect(result.repairUsed).toBe(true);
+    expect(result.repairStatus).toBe("succeeded");
     expect(result.validation.errors).toEqual([]);
     expect(generate.mock.calls[1][5]?.progressPhase).toBe("repairing");
   });
@@ -121,9 +148,49 @@ describe("generateAssessment request budget and repair", () => {
 
     expect(generate).toHaveBeenCalledTimes(2);
     expect(result.repairUsed).toBe(true);
+    expect(result.repairStatus).toBe("succeeded");
     expect(result.validation.errors).toEqual([]);
     expect(JSON.stringify(generate.mock.calls[1][0])).toContain("唯讀共用情境藍圖");
     expect(JSON.stringify(generate.mock.calls[1][0])).toContain("每日照片");
+  });
+
+  it("rejects a repair that swaps the original error for a new error", async () => {
+    const broken = structuredClone(TEST_ASSESSMENT_DOCUMENT);
+    broken.pre.scenarioBlueprint.setting = `實驗室預告：${broken.pre.scenarioBlueprint.setting}`;
+    const stillBroken = structuredClone(TEST_ASSESSMENT_DOCUMENT.pre.scenarioBlueprint);
+    stillBroken.setting = `本堂課預告：${stillBroken.setting}`;
+    const generate = vi
+      .fn<AssessmentGenerateFn>()
+      .mockResolvedValueOnce(JSON.stringify(broken))
+      .mockResolvedValueOnce(JSON.stringify({ pre: { scenarioBlueprint: stillBroken } }));
+
+    const result = await generateAssessment(input, generate);
+
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.repairUsed).toBe(true);
+    expect(result.repairStatus).toBe("failed");
+    expect(result.document.pre.scenarioBlueprint.setting).toContain("實驗室預告");
+    expect(result.validation.errors).toContain(
+      "課前情境出現課程洩漏詞「實驗室」，不符合零課程詞彙",
+    );
+    expect(result.validation.errors.some((error) => error.includes("本堂課"))).toBe(false);
+  });
+
+  it("reports a failed quality repair when the patch cannot be parsed", async () => {
+    const broken = structuredClone(TEST_ASSESSMENT_DOCUMENT);
+    broken.pre.scenarioBlueprint.setting = `實驗室預告：${broken.pre.scenarioBlueprint.setting}`;
+    const generate = vi
+      .fn<AssessmentGenerateFn>()
+      .mockResolvedValueOnce(JSON.stringify(broken))
+      .mockResolvedValueOnce("not valid patch json");
+
+    const result = await generateAssessment(input, generate);
+
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.repairUsed).toBe(true);
+    expect(result.repairStatus).toBe("failed");
+    expect(result.document.pre.scenarioBlueprint.setting).toContain("實驗室預告");
+    expect(result.validation.ok).toBe(false);
   });
 
   it("stops after two requests and preserves both parse errors in the message", async () => {

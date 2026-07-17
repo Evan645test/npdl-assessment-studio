@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULT_FORM, DEFAULT_MODEL, MODEL_OPTIONS } from "@/data/constants";
 import { getIndicatorById } from "@/data/indicators";
-import { generateAssessment } from "@/lib/assessment-generation";
+import {
+  generateAssessment,
+  type AssessmentRepairStatus,
+} from "@/lib/assessment-generation";
 import {
   buildAssessmentPatchSchema,
   mergeAssessmentPatch,
@@ -10,6 +13,7 @@ import {
   renderAssessmentMarkdown,
   selectAssessmentPatchSource,
 } from "@/lib/assessment-document";
+import { normalizeAssessmentQuestionStems } from "@/lib/question-contracts";
 import { normalizeGeneratedQ4Markdown } from "@/lib/q4-guidance";
 import { generateContent, generateIdeationJson, getModelProvider } from "@/lib/ai/client";
 import { toUserErrorMessage } from "@/lib/errors";
@@ -83,6 +87,7 @@ export function useAppState() {
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [repairStatus, setRepairStatus] = useState<AssessmentRepairStatus | null>(null);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
 
   const indicator = useMemo(
@@ -155,9 +160,11 @@ export function useAppState() {
     let normalizedMarkdown: string | null = null;
     if (isV3 && draftPrompt.assessmentDocument) {
       try {
-        restoredDocument = parseAssessmentDocument(
-          JSON.stringify(draftPrompt.assessmentDocument),
-          { allowLegacyPostAnnotations: true },
+        restoredDocument = normalizeAssessmentQuestionStems(
+          parseAssessmentDocument(
+            JSON.stringify(draftPrompt.assessmentDocument),
+            { allowLegacyPostAnnotations: true },
+          ),
         );
         normalizedMarkdown = renderAssessmentMarkdown(restoredDocument, draftPrompt.form);
       } catch {
@@ -176,6 +183,7 @@ export function useAppState() {
         ? validateGeneratedMarkdown(normalizedMarkdown, draftPrompt.form)
         : null,
     );
+    setRepairStatus(normalizedMarkdown ? "not_needed" : null);
     setActiveModuleTab(draftPrompt.activeModuleTab);
     setDraftPrompt(null);
     localStorage.removeItem(KEYS.draftDismissed);
@@ -205,6 +213,7 @@ export function useAppState() {
     if (window.innerWidth < 1024) setSidebarOpen(false);
     setError(null);
     setValidation(null);
+    setRepairStatus(null);
     setGenerationProgress({ phase: "connecting", receivedChars: 0, completedSections: [] });
     const startedAt = performance.now();
     let firstDeltaMs: number | null = null;
@@ -226,6 +235,7 @@ export function useAppState() {
       });
 
       setValidation(result.validation);
+      setRepairStatus(result.repairStatus);
       setAssessmentDocument(result.document);
       setGeneratedMarkdown(result.markdown);
       setActiveModuleTab(0);
@@ -235,6 +245,7 @@ export function useAppState() {
           totalMs: Math.round(performance.now() - startedAt),
           outputChars: result.outputChars,
           repairUsed: result.repairUsed,
+          repairStatus: result.repairStatus,
           validationOk: result.validation.ok,
           validationErrors: result.validation.errors.length,
         });
@@ -321,11 +332,14 @@ export function useAppState() {
         },
       );
       const patch = parseAssessmentPatch(raw, targets);
-      const updatedDocument = mergeAssessmentPatch(assessmentDocument, patch, targets);
+      const updatedDocument = normalizeAssessmentQuestionStems(
+        mergeAssessmentPatch(assessmentDocument, patch, targets),
+      );
       const updated = renderAssessmentMarkdown(updatedDocument, form);
       setAssessmentDocument(updatedDocument);
       setGeneratedMarkdown(updated);
       setValidation(validateGeneratedMarkdown(updated, form));
+      setRepairStatus("not_needed");
       setHighlightKey(`${refineTarget.type}-${refineTarget.id}-${Date.now()}`);
       setRefineTarget(null);
       setRefineInstruction("");
@@ -431,6 +445,7 @@ export function useAppState() {
     connectionStatus,
     testingConnection,
     validation,
+    repairStatus,
     generationProgress,
     setValidation,
     appendKeyword,
