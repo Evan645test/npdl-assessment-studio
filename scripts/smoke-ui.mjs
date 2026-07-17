@@ -292,10 +292,29 @@ async function verifyGoogleFormsSetupUi() {
 
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "恢復", exact: true }).click();
-  await page.getByRole("button", { name: "設定 Google Forms", exact: true }).click();
+  const managedExportButton = page.getByRole(
+    "button",
+    { name: "登入 Google 並建立課前／課後問卷", exact: true },
+  );
+  const managedMode = await managedExportButton.count() > 0;
+  if (managedMode) {
+    await page.getByRole("button", { name: "系統設定", exact: true }).click();
+  } else {
+    await page.getByRole("button", { name: "設定 Google Forms", exact: true }).click();
+  }
   await page.getByRole("dialog", { name: "系統設定" }).waitFor();
-  await page.getByLabel("Google OAuth Web Client ID", { exact: true }).waitFor();
-  await page.getByText(/已授權的 JavaScript 來源/).waitFor();
+  if (managedMode) {
+    await page.getByText(
+      "Google Forms 已由系統管理者完成設定。建立問卷時，使用者只需登入 Google 並確認授權。",
+      { exact: true },
+    ).waitFor();
+    if (await page.getByLabel("Google OAuth Web Client ID", { exact: true }).count()) {
+      throw new Error("受管理的 Google Forms 模式不應顯示 Client ID 輸入欄位");
+    }
+  } else {
+    await page.getByLabel("Google OAuth Web Client ID", { exact: true }).waitFor();
+    await page.getByText(/已授權的 JavaScript 來源/).waitFor();
+  }
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${outputDir}/desktop-google-forms-settings.png` });
   await context.close();
