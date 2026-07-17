@@ -38,6 +38,9 @@ jobs:
           VITE_BASE_PATH: /npdl-assessment-studio/
           VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
 
+      - name: Verify deploy asset compatibility
+        run: npm run smoke:deploy
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

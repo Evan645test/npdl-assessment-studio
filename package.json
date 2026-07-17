@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "preview": "vite preview",
+    "smoke:deploy": "node scripts/smoke-deploy-assets.mjs",
     "smoke:quality": "node scripts/smoke-quality.mjs",
     "smoke:ui": "node scripts/smoke-ui.mjs"
   },
