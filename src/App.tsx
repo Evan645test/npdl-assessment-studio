@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   BookMarked,
   Layers,
+  Lightbulb,
   Menu,
   Monitor,
   PanelLeftClose,
@@ -115,6 +116,14 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <a
+            href={`${import.meta.env.BASE_URL}course-ideation/`}
+            className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-black text-amber-900 shadow-sm hover:bg-amber-100 sm:px-3"
+            aria-label="開啟課程發想工具"
+          >
+            <Lightbulb className="h-4 w-4" />
+            <span className="hidden sm:inline">課程發想</span>
+          </a>
           <button
             type="button"
             onClick={() => state.setSidebarOpen((v) => !v)}
@@ -176,6 +185,19 @@ export default function App() {
               {t.draftRestoreNo}
             </button>
           </div>
+        </div>
+      )}
+
+      {state.handoffNotice && (
+        <div className="flex items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50 px-4 py-2 text-sm">
+          <span className="font-bold text-emerald-900">{state.handoffNotice}</span>
+          <button
+            type="button"
+            onClick={state.dismissHandoffNotice}
+            className="rounded-lg border border-emerald-200 bg-white px-3 py-1 text-xs font-black text-emerald-800"
+          >
+            知道了
+          </button>
         </div>
       )}
 

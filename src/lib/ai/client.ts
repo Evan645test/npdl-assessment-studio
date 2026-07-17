@@ -288,7 +288,7 @@ export async function generateWithGemini(
 ): Promise<string> {
   if (!apiKey.trim()) throw new Error("請前往系統設定填寫 Gemini API Key。");
   const method = options.onProgress ? "streamGenerateContent" : "generateContent";
-  const streamQuery = options.onProgress ? "&alt=sse" : "";
+  const streamQuery = options.onProgress ? "?alt=sse" : "";
   const generationConfig: Record<string, unknown> = { temperature: 0.7 };
   if (options.structured) {
     generationConfig.responseMimeType = "application/json";
@@ -296,10 +296,13 @@ export async function generateWithGemini(
   }
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:${method}?key=${encodeURIComponent(apiKey.trim())}${streamQuery}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:${method}${streamQuery}`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": apiKey.trim(),
+      },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: promptText(prompt) }] }],
         generationConfig,
@@ -455,10 +458,13 @@ export async function generateIdeationJson(
 
   if (!geminiKey.trim()) throw new Error("請前往系統設定填寫 Gemini API Key。");
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiKey.trim())}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": geminiKey.trim(),
+      },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: {

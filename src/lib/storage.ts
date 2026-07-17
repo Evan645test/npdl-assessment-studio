@@ -9,6 +9,10 @@ const KEYS = {
   draftDismissed: "npdl_draft_dismissed",
   googleOAuthClientId: "npdl_google_oauth_client_id",
   googleFormsExports: "npdl_google_forms_exports_v1",
+  courseIdeationDraft: "npdl_course_ideation_draft_v1",
+  courseIdeationModel: "npdl_course_ideation_model_v2",
+  courseIdeationConsent: "npdl_course_ideation_ai_consent_v2",
+  courseIdeationHandoff: "npdl_course_ideation_handoff_v1",
 } as const;
 
 export function readStorage(key: string): string | null {
@@ -22,6 +26,14 @@ export function readStorage(key: string): string | null {
 export function writeStorage(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function removeStorage(key: string): void {
+  try {
+    localStorage.removeItem(key);
   } catch {
     /* ignore */
   }

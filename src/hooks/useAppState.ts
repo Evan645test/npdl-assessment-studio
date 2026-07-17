@@ -16,6 +16,10 @@ import {
 import { normalizeAssessmentQuestionStems } from "@/lib/question-contracts";
 import { normalizeGeneratedQ4Markdown } from "@/lib/q4-guidance";
 import { generateContent, generateIdeationJson, getModelProvider } from "@/lib/ai/client";
+import {
+  courseIdeationHandoffToForm,
+  isValidCourseIdeationHandoff,
+} from "@/lib/course-ideation";
 import { toUserErrorMessage } from "@/lib/errors";
 import { splitModules } from "@/lib/markdown";
 import {
@@ -24,7 +28,7 @@ import {
   buildStructuredRefinePrompt,
 } from "@/prompts";
 import { validateGeneratedMarkdown, type ValidationResult } from "@/lib/validate-output";
-import { KEYS, readJson, writeJson, writeStorage } from "@/lib/storage";
+import { KEYS, readJson, removeStorage, writeJson, writeStorage } from "@/lib/storage";
 import type {
   CourseForm,
   AssessmentDocument,
@@ -38,6 +42,7 @@ import type {
   RefineTarget,
   SavedQuestion,
 } from "@/types";
+import type { CourseIdeationHandoff } from "@/types/course-ideation";
 
 const MANAGED_GOOGLE_OAUTH_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID?.trim() ?? "";
@@ -89,6 +94,7 @@ export function useAppState() {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [repairStatus, setRepairStatus] = useState<AssessmentRepairStatus | null>(null);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
+  const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
 
   const indicator = useMemo(
     () => (form.source === "資料庫" ? getIndicatorById(form.indicatorId) ?? null : null),
@@ -140,6 +146,20 @@ export function useAppState() {
   }, [form, assessmentDocument, activeModuleTab, draftStorageReady]);
 
   useEffect(() => {
+    const handoff = readJson<CourseIdeationHandoff | null>(
+      KEYS.courseIdeationHandoff,
+      null,
+    );
+    if (isValidCourseIdeationHandoff(handoff)) {
+      setForm(courseIdeationHandoffToForm(handoff));
+      setMobileStep(2);
+      setDraftPrompt(null);
+      setHandoffNotice("已帶入課程發想結果，請確認推薦子向度後再生成評量。");
+      removeStorage(KEYS.courseIdeationHandoff);
+      setDraftStorageReady(true);
+      return;
+    }
+    if (handoff) removeStorage(KEYS.courseIdeationHandoff);
     const dismissed = localStorage.getItem(KEYS.draftDismissed);
     const draft = readJson<DraftState | null>(KEYS.draft, null)
       ?? readJson<LegacyDraftState | null>(KEYS.legacyDraft, null);
@@ -450,5 +470,7 @@ export function useAppState() {
     setValidation,
     appendKeyword,
     selectedModelProvider,
+    handoffNotice,
+    dismissHandoffNotice: () => setHandoffNotice(null),
   };
 }

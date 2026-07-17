@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="以核心關鍵字啟動課程發想，完成 NPDL 6Cs 子向度與學習設計四要素對齊。"
+    />
+    <title>NPDL 課程發想工具</title>
+    <script>
+      (() => {
+        const recoveryKey = "npdl_ideation_asset_recovery_at";
+        const recoverableMessage =
+          /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed/i;
+
+        const recover = () => {
+          const now = Date.now();
+          const lastRecoveryAt = Number(sessionStorage.getItem(recoveryKey) || "0");
+          if (now - lastRecoveryAt < 30_000) return;
+
+          sessionStorage.setItem(recoveryKey, String(now));
+          const nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.set("_asset_reload", String(now));
+          window.location.replace(nextUrl.toString());
+        };
+
+        window.addEventListener("vite:preloadError", (event) => {
+          event.preventDefault();
+          recover();
+        });
+        window.addEventListener("unhandledrejection", (event) => {
+          const message =
+            event.reason instanceof Error
+              ? event.reason.message
+              : String(event.reason ?? "");
+          if (!recoverableMessage.test(message)) return;
+          event.preventDefault();
+          recover();
+        });
+        window.addEventListener(
+          "error",
+          (event) => {
+            const failedModule =
+              event.target instanceof HTMLScriptElement &&
+              event.target.type === "module";
+            if (failedModule || recoverableMessage.test(event.message)) recover();
+          },
+          true,
+        );
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/course-ideation-main.tsx"></script>
+  </body>
+</html>

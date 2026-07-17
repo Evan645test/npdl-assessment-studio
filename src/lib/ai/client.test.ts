@@ -120,6 +120,8 @@ describe("AI provider requests", () => {
     const [url, request] = vi.mocked(fetch).mock.calls[0];
     expect(String(url)).toContain(":streamGenerateContent?");
     expect(String(url)).toContain("alt=sse");
+    expect(String(url)).not.toContain("secret");
+    expect(new Headers(request?.headers).get("x-goog-api-key")).toBe("secret");
     const body = JSON.parse(String(request?.body));
     expect(body.generationConfig).toEqual({
       temperature: 0.7,

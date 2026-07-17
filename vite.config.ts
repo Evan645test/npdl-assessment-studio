@@ -15,9 +15,23 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        "course-ideation": path.resolve(__dirname, "course-ideation/index.html"),
+      },
       output: {
-        entryFileNames: "assets/app.js",
-        chunkFileNames: "assets/chunks/[name].js",
+        manualChunks(id) {
+          if (id.includes("@heyputer/puter.js")) return "puter";
+        },
+        entryFileNames: (chunkInfo) =>
+          chunkInfo.name === "main"
+            ? "assets/app.js"
+            : "assets/[name].js",
+        chunkFileNames: (chunkInfo) => {
+          if (chunkInfo.name === "puter") return "assets/chunks/index.js";
+          if (chunkInfo.name === "index") return "assets/chunks/shared.js";
+          return "assets/chunks/[name].js";
+        },
         assetFileNames: "assets/[name][extname]",
       },
     },

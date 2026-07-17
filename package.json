@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "smoke:deploy": "node scripts/smoke-deploy-assets.mjs",
     "smoke:quality": "node scripts/smoke-quality.mjs",
-    "smoke:ui": "node scripts/smoke-ui.mjs"
+    "smoke:ui": "node scripts/smoke-ui.mjs",
+    "smoke:course-ideation": "node scripts/smoke-course-ideation-ui.mjs"
   },
   "dependencies": {
     "@heyputer/puter.js": "^2.5.4",
