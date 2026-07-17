@@ -202,7 +202,7 @@ export default function App() {
           <p className="font-black">
             {state.validation.ok
               ? t.validationFormatOk
-              : t.validationErrors(state.validation.errors.length)}
+              : t.validationErrors(state.validation.errors.length, state.repairStatus)}
             {state.validation.warnings.length > 0 &&
               ` · ${t.validationWarnings(state.validation.warnings.length)}`}
           </p>

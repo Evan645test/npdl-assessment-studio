@@ -17,6 +17,11 @@ import {
   renderGuidedQ4Markdown,
   renderScenarioFromBlueprint,
 } from "@/lib/q4-guidance";
+import {
+  normalizeAssessmentQuestionStems,
+  QUESTION_ABILITY_CONTRACTS,
+  type AssessmentQuestionNumber,
+} from "@/lib/question-contracts";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -31,21 +36,29 @@ function strictObject(properties: Record<string, JsonSchema>): JsonSchema {
   };
 }
 
-const choiceSchema = strictObject({
-  text: stringSchema("學生看到的選項文字；不得含分數標記，長度需與其他選項相近。"),
-  rationale: stringSchema("教師解析；說明此選項在概念理解、行動策略或生活遷移上的 NPDL 進程理由。"),
-});
+function questionSchema(number: AssessmentQuestionNumber): JsonSchema {
+  const contract = QUESTION_ABILITY_CONTRACTS[number];
+  const choiceSchema = strictObject({
+    text: stringSchema(
+      `學生看到的${contract.label}選項文字；不得含分數標記，長度需與其他選項相近。`,
+    ),
+    rationale: stringSchema(`教師解析；${contract.rationaleDescription}`),
+  });
+  return strictObject({
+    stem: stringSchema(contract.stemDescription),
+    options: {
+      type: "array",
+      description: contract.optionsDescription,
+      items: choiceSchema,
+      minItems: 4,
+      maxItems: 4,
+    },
+  });
+}
 
-const questionSchema = strictObject({
-  stem: stringSchema("直接連結共用情境與本次能力階梯的題幹。"),
-  options: {
-    type: "array",
-    description: "依本次能力策略完整度由低至高排列的 A、B、C、D 四個合理選項。",
-    items: choiceSchema,
-    minItems: 4,
-    maxItems: 4,
-  },
-});
+const q1QuestionSchema = questionSchema(1);
+const q2QuestionSchema = questionSchema(2);
+const q3QuestionSchema = questionSchema(3);
 
 const studentExamplesSchema = strictObject({
   evidenceLimited: stringSchema("符合情境、第一人稱、1 至 2 句的證據有限層學生回答。"),
@@ -132,18 +145,18 @@ const narrativeSchema = strictObject({
 
 const preModuleSchema = strictObject({
   scenarioBlueprint: scenarioBlueprintSchema,
-  q1: questionSchema,
-  q2: questionSchema,
-  q3: questionSchema,
+  q1: q1QuestionSchema,
+  q2: q2QuestionSchema,
+  q3: q3QuestionSchema,
   q4: openQuestionSchema,
   statistics: stringSchema("Q1 至 Q3 加總分的四級落點與判讀方式。"),
 });
 
 const postModuleSchema = strictObject({
   scenarioBlueprint: scenarioBlueprintSchema,
-  q1: questionSchema,
-  q2: questionSchema,
-  q3: questionSchema,
+  q1: q1QuestionSchema,
+  q2: q2QuestionSchema,
+  q3: q3QuestionSchema,
   q4: postOpenQuestionSchema,
   statistics: stringSchema("Q1 至 Q3 加總分的四級落點，以及概念理解與生活遷移的人工對照方式。"),
 });
@@ -445,19 +458,20 @@ ${clean(module.statistics)}`;
 }
 
 export function renderAssessmentMarkdown(document: AssessmentDocument, form: CourseForm): string {
+  const normalizedDocument = normalizeAssessmentQuestionStems(document);
   const narrative = `## 課程敘述語
 
-${renderNarrativeLevel("證據有限", document.narrative.evidenceLimited)}
+${renderNarrativeLevel("證據有限", normalizedDocument.narrative.evidenceLimited)}
 
-${renderNarrativeLevel("萌芽", document.narrative.emerging)}
+${renderNarrativeLevel("萌芽", normalizedDocument.narrative.emerging)}
 
-${renderNarrativeLevel("發展", document.narrative.developing)}
+${renderNarrativeLevel("發展", normalizedDocument.narrative.developing)}
 
-${renderNarrativeLevel("精熟", document.narrative.mastering)}`;
+${renderNarrativeLevel("精熟", normalizedDocument.narrative.mastering)}`;
   return [
     narrative,
-    renderModule(document.pre, "pre", form),
-    renderModule(document.post, "post", form),
+    renderModule(normalizedDocument.pre, "pre", form),
+    renderModule(normalizedDocument.post, "post", form),
   ].join("\n\n");
 }
 
@@ -490,7 +504,9 @@ function schemaForTarget(target: AssessmentTarget): JsonSchema {
   if (target === "narrative") return narrativeSchema;
   if (target.endsWith(".scenario")) return scenarioBlueprintSchema;
   if (target.endsWith(".statistics")) return { type: "string" };
-  if (/\.q[1-3]$/.test(target)) return questionSchema;
+  if (target.endsWith(".q1")) return q1QuestionSchema;
+  if (target.endsWith(".q2")) return q2QuestionSchema;
+  if (target.endsWith(".q3")) return q3QuestionSchema;
   if (target === "post.q4") return postOpenQuestionSchema;
   if (target === "pre.q4") return openQuestionSchema;
   return ASSESSMENT_DOCUMENT_SCHEMA;
