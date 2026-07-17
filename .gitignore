@@ -1,0 +1,22 @@
+node_modules/
+dist/
+coverage/
+.vite/
+.DS_Store
+*.log
+*.local
+.env
+.env.*
+!.env.example
+
+# 舊版壓縮產物與未使用的 Netlify 原型不屬於目前 React 原始碼。
+/assets/
+/images/
+/netlify/
+/netlify.toml
+/_redirects
+
+# 瀏覽器測試與本機工作檔。
+/playwright-report/
+/test-results/
+/.openai/

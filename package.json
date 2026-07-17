@@ -1,0 +1,35 @@
+{
+  "name": "npdl-studio",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "preview": "vite preview",
+    "smoke:quality": "node scripts/smoke-quality.mjs",
+    "smoke:ui": "node scripts/smoke-ui.mjs"
+  },
+  "dependencies": {
+    "@heyputer/puter.js": "^2.5.4",
+    "framer-motion": "^12.23.12",
+    "lucide-react": "^0.542.0",
+    "pdfjs-dist": "^5.7.284",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.12",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "playwright-core": "^1.61.1",
+    "tailwindcss": "^4.1.12",
+    "typescript": "~5.8.3",
+    "vite": "^7.1.2",
+    "vitest": "^3.2.7"
+  }
+}

@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+body {
+  overscroll-behavior: none;
+  font-family: ui-sans-serif, system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  background: #f3f7f4;
+  color: #18181b;
+  --npdl-page-bg: #f3f7f4;
+  --npdl-card-radius: 0.75rem;
+  --npdl-pill-radius: 0.75rem;
+  --npdl-label-size: 0.625rem;
+  --npdl-body-size: 0.875rem;
+  --npdl-title-size: 1rem;
+}
+
+#root {
+  isolation: isolate;
+}
+
+*,
+*::before,
+*::after {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #b9ccc2 transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #b9ccc2;
+  border-radius: 999px;
+}
+
+.prose-npdl strong {
+  font-weight: 800;
+}
+
+@keyframes npdl-highlight {
+  0% {
+    background-color: rgb(254 243 199 / 0.9);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.npdl-highlight-flash {
+  animation: npdl-highlight 1s ease-out;
+}
+
+.dimension-hex-map {
+  --dimension-color: #173f36;
+  display: block;
+  width: min(22rem, 100%);
+  margin-inline: auto;
+  filter: drop-shadow(0 7px 14px rgb(15 45 38 / 0.08));
+  overflow: visible;
+}
+
+.dimension-hex-slice {
+  --dimension-color: #173f36;
+  cursor: pointer;
+  outline: none;
+}
+
+.dimension-hex-wedge {
+  fill: color-mix(in srgb, var(--dimension-color) 10%, white);
+  stroke: white;
+  stroke-width: 3;
+  stroke-linejoin: round;
+  transition:
+    fill 160ms ease,
+    stroke-width 160ms ease,
+    transform 160ms ease,
+    filter 160ms ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.dimension-hex-slice:hover .dimension-hex-wedge,
+.dimension-hex-slice:focus-visible .dimension-hex-wedge {
+  fill: color-mix(in srgb, var(--dimension-color) 20%, white);
+  stroke-width: 4;
+  filter: brightness(1.02) saturate(1.08);
+}
+
+.dimension-hex-slice.is-active .dimension-hex-wedge {
+  fill: color-mix(in srgb, var(--dimension-color) 88%, #173f36);
+  stroke-width: 4;
+  filter: saturate(1.08);
+}
+
+.dimension-hex-outline {
+  fill: none;
+  stroke: #dfe8e2;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.dimension-hex-center {
+  fill: white;
+  stroke: #dfe8e2;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.dimension-hex-mark,
+.dimension-hex-label {
+  pointer-events: none;
+  fill: #3f3f46;
+  transition: fill 160ms ease;
+}
+
+.dimension-hex-mark {
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.dimension-hex-label {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.dimension-hex-slice.is-active .dimension-hex-mark,
+.dimension-hex-slice.is-active .dimension-hex-label {
+  fill: white;
+}
