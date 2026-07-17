@@ -400,9 +400,86 @@ async function verifyMalformedResponseBoundary() {
   await context.close();
 }
 
+async function verifyCourseExamples() {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    locale: "zh-TW",
+  });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    if (window.location.pathname.includes("/course-ideation/")) {
+      localStorage.clear();
+    }
+  });
+  await page.goto(new URL("course-ideation/", baseUrl).toString(), {
+    waitUntil: "networkidle",
+  });
+
+  const exampleSelect = page.getByLabel("載入測試範例");
+  if ((await exampleSelect.locator("option").count()) !== 9) {
+    throw new Error("課程發想工具未提供 8 組測試範例");
+  }
+  for (const optionLabel of [
+    "地理｜氣候調適倡議",
+    "化學｜反應速率探究",
+    "生物｜校園生物多樣性",
+    "物理｜教室節能診斷",
+    "數學｜剩食資料決策",
+    "國文｜地方記憶書寫",
+    "英文｜永續校園倡議",
+    "社會｜手機規範審議",
+  ]) {
+    if (
+      !(await exampleSelect
+        .locator("option")
+        .allTextContents())
+        .includes(optionLabel)
+    ) {
+      throw new Error(`課程發想工具缺少測試範例：${optionLabel}`);
+    }
+  }
+
+  await exampleSelect.selectOption("chemistry-reaction-rate");
+  if ((await page.getByLabel("年級").inputValue()) !== "高二") {
+    throw new Error("化學測試範例未載入正確年級");
+  }
+  if ((await page.getByLabel("學科").inputValue()) !== "化學") {
+    throw new Error("化學測試範例未載入正確學科");
+  }
+  if ((await page.getByLabel("單元名稱").inputValue()) !== "化學反應速率") {
+    throw new Error("化學測試範例未載入正確單元");
+  }
+  await page.getByText("變因控制", { exact: true }).waitFor();
+
+  await exampleSelect.selectOption("mathematics-food-waste-data");
+  if ((await page.getByLabel("學科").inputValue()) !== "數學") {
+    throw new Error("數學測試範例未取代前一組學科");
+  }
+  if (
+    (await page.getByLabel("教學主題").inputValue()) !==
+    "以校園午餐剩食資料提出改善策略"
+  ) {
+    throw new Error("數學測試範例未載入正確教學主題");
+  }
+  await page.getByText("抽樣偏差", { exact: true }).waitFor();
+
+  const noHorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth,
+  );
+  if (!noHorizontalOverflow) {
+    throw new Error("多學科測試範例選單造成手機版水平溢位");
+  }
+  await page.screenshot({
+    path: `${outputDir}/examples-mobile.png`,
+    fullPage: true,
+  });
+  await context.close();
+}
+
 try {
   await verifyByokSettings();
   await verifyMalformedResponseBoundary();
+  await verifyCourseExamples();
   await verifyCourseIdeationUi(
     "desktop",
     { width: 1440, height: 1000 },
@@ -414,7 +491,7 @@ try {
     false,
   );
   console.log(
-    `課程發想 UI smoke test 通過：BYOK 模型隔離、三供應商金鑰保存／清除、錯誤資訊邊界、首次同意、兩階段 AI、6Cs 進程、三層成果、四要素、評量交接、桌面與手機版均正常。截圖：${outputDir}`,
+    `課程發想 UI smoke test 通過：8 組多學科測試範例、BYOK 模型隔離、三供應商金鑰保存／清除、錯誤資訊邊界、首次同意、兩階段 AI、6Cs 進程、三層成果、四要素、評量交接、桌面與手機版均正常。截圖：${outputDir}`,
   );
 } finally {
   await browser.close();

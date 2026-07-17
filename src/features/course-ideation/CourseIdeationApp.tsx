@@ -18,6 +18,11 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { GRADES, SUBJECT_CHIPS } from "@/data/constants";
+import {
+  COURSE_IDEATION_EXAMPLES,
+  DEFAULT_COURSE_IDEATION_EXAMPLE_ID,
+  createCourseIdeationExampleInput,
+} from "@/data/course-ideation-examples";
 import { getIndicatorById } from "@/data/indicators";
 import {
   generateContent,
@@ -74,13 +79,9 @@ interface CourseIdeationDraft {
 
 type AiAction = "analyze" | "align";
 
-const DEFAULT_INPUT: CourseIdeationInput = {
-  grade: "高一",
-  subject: "地理",
-  unitName: "全球氣候變遷",
-  teachingTopic: "極端氣候與校園調適倡議",
-  coreKeywords: ["極端氣候", "校園熱島", "數據證據", "小組倡議"],
-};
+const DEFAULT_INPUT = createCourseIdeationExampleInput(
+  DEFAULT_COURSE_IDEATION_EXAMPLE_ID,
+);
 
 const CONSENT_VERSION = 2;
 const DRAFT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
@@ -461,8 +462,8 @@ export default function CourseIdeationApp() {
     setConsentGranted(false);
   };
 
-  const resetAll = () => {
-    setInput(DEFAULT_INPUT);
+  const loadTestExample = (exampleId: string) => {
+    setInput(createCourseIdeationExampleInput(exampleId));
     setAnalysis(null);
     setAlignment(null);
     setSelectedIndicatorId("");
@@ -596,14 +597,36 @@ export default function CourseIdeationApp() {
                   四個課程欄位，加上 3–5 個核心關鍵字。
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={resetAll}
-                className="flex items-center gap-1 rounded-xl border border-[#dfe8e2] px-3 py-2 text-xs font-black text-zinc-600 hover:bg-[#f7faf8]"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                測試範例
-              </button>
+              <div className="relative shrink-0">
+                <RotateCcw
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-600"
+                />
+                <select
+                  aria-label="載入測試範例"
+                  title="載入不同學科的測試範例"
+                  value=""
+                  onChange={(event) => {
+                    if (event.target.value) {
+                      loadTestExample(event.target.value);
+                    }
+                  }}
+                  className="min-h-9 max-w-44 cursor-pointer appearance-none rounded-xl border border-[#dfe8e2] bg-white py-2 pl-8 pr-8 text-xs font-black text-zinc-600 outline-none hover:bg-[#f7faf8] focus:border-[#2f7d68] focus:ring-2 focus:ring-emerald-100 sm:max-w-56"
+                >
+                  <option value="" disabled>
+                    測試範例
+                  </option>
+                  {COURSE_IDEATION_EXAMPLES.map((example) => (
+                    <option key={example.id} value={example.id}>
+                      {example.input.subject}｜{example.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500"
+                />
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
