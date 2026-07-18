@@ -28,6 +28,16 @@ const keywordAnalysis = {
 };
 
 const courseAlignment = {
+  curriculumSelection: {
+    performanceIds: ["geography-v-performance-inquiry-1"],
+    contentIds: ["geography-v-content-climate-5"],
+    rationale: "課程聚焦氣候資料分析與調適方案，對應地理探究表現與氣候內容。",
+  },
+  backwardDesign: {
+    transferGoals: ["能在新的校園情境中，以資料判讀風險並提出調適方案。"],
+    enduringUnderstandings: ["氣候風險需要結合現象、脆弱度與資料證據判斷。"],
+    essentialQuestions: ["我們如何用證據決定校園氣候調適的優先順序？"],
+  },
   recommendations: [
     {
       indicatorId: "C2-P1",
@@ -44,6 +54,10 @@ const courseAlignment = {
     knowledgeFoundation: {
       statement: "能說明極端氣候與校園熱島的成因及影響。",
       evidence: "概念圖與資料摘要。",
+      successCriteria: [
+        "能引用資料說明至少兩項氣候風險。",
+        "能區分氣候現象、影響與調適措施。",
+      ],
     },
     competencySubdimension: {
       statement: "能組織多項資料並形成有證據的判斷。",
@@ -79,6 +93,145 @@ const courseAlignment = {
   evidenceTools: ["校園測量表", "倡議簡報", "同儕回饋單"],
 };
 
+const evidencePlan = {
+  performanceTask: {
+    goal: "提出可執行的校園氣候調適方案。",
+    role: "校園氣候顧問",
+    audience: "校務會議代表",
+    situation: "校園需要決定下一年度優先改善項目。",
+    product: "附資料證據的倡議簡報與行動方案",
+    criterionIds: ["success-1", "success-2"],
+  },
+  questionMaps: ["pre", "post"].map((phase) => ({
+    phase,
+    sharedProblem:
+      phase === "pre"
+        ? "如何判斷校園中最需要處理的高溫風險？"
+        : "面對新增遮蔭資料與預算限制，應如何修正調適優先順序？",
+    transferDifference:
+      phase === "pre"
+        ? "課前只使用學生既有生活經驗與一般資料。"
+        : "課後加入新的遮蔭資料、預算限制與不同使用者需求。",
+    questions: [
+      {
+        id: "Q1",
+        focus: "conceptual_understanding",
+        purpose: "辨識與問題直接相關的概念與證據。",
+        criterionIds: ["success-1"],
+        observableEvidence: "能指出關鍵風險與相關資料。",
+      },
+      {
+        id: "Q2",
+        focus: "action_application",
+        purpose: "比較資料並選擇可執行的判斷方式。",
+        criterionIds: ["success-1", "success-2"],
+        observableEvidence: "能說明資料取捨與行動理由。",
+      },
+      {
+        id: "Q3",
+        focus: "life_transfer",
+        purpose: "把判斷方法遷移到新的校園限制。",
+        criterionIds: ["success-2"],
+        observableEvidence: "能因應限制調整方法並確認結果。",
+      },
+      {
+        id: "Q4",
+        focus: "guided_response",
+        purpose: "整合概念、行動與遷移形成完整書面判斷。",
+        criterionIds: ["success-1", "success-2"],
+        observableEvidence: "能留下可依四級進程判讀的完整回應。",
+      },
+    ],
+  })),
+  evidenceItems: [
+    {
+      type: "diagnostic",
+      title: "課前 Q1–Q4",
+      criterionIds: ["success-1", "success-2"],
+      artifact: "四題基準想法紀錄",
+      method: "個人作答後匿名彙整",
+      timing: "第一節開始",
+      decisionRule: "若三分之一以上學生混淆概念，先安排共同判讀。",
+    },
+    {
+      type: "formative",
+      title: "資料判讀出口單",
+      criterionIds: ["success-1"],
+      artifact: "主張、證據與推論三欄出口單",
+      method: "教師依檢核表快速分類",
+      timing: "第二節結束",
+      decisionRule: "若三分之一以上缺少證據，下一節先補做共同判讀。",
+    },
+    {
+      type: "summative",
+      title: "校園調適倡議",
+      criterionIds: ["success-1", "success-2"],
+      artifact: "倡議簡報與資料附件",
+      method: "學科規準評定與真實受眾回饋",
+      timing: "第三節",
+      decisionRule: "未達發展層級者依回饋補證並修訂。",
+    },
+    {
+      type: "transfer",
+      title: "課後 Q1–Q4",
+      criterionIds: ["success-1", "success-2"],
+      artifact: "新校園案例的四題遷移作答",
+      method: "個人書面回應",
+      timing: "第三節結束",
+      decisionRule: "無法遷移者在下一單元保留跨情境比較鷹架。",
+    },
+  ],
+  rubric: ["success-1", "success-2"].map((criterionId) => ({
+    criterionId,
+    levels: {
+      evidenceLimited: "未提出可辨識的證據。",
+      emerging: "提出資料但未說明關聯。",
+      developing: "能以相關資料支持判斷。",
+      mastering: "能比較資料、處理限制並形成有力判斷。",
+    },
+  })),
+};
+
+const blueprintLesson = (lessonNumber, overrides) => ({
+  lessonNumber,
+  title: `第 ${lessonNumber} 節課程`,
+  minutes: 50,
+  milestone: "完成本節里程碑。",
+  outcomeIds: ["knowledge-foundation"],
+  criterionIds: ["success-1", "success-2"],
+  evidenceItemIds: ["evidence-formative-1"],
+  learningIntention: "以資料支持氣候風險判斷。",
+  coreTask: "整理資料並形成可檢驗的主張。",
+  formativeCheck: "資料判讀紀錄",
+  decisionRule: "若三分之一以上缺少證據，先安排共同判讀。",
+  fourElementNames: ["學習夥伴關係", "數位利用"],
+  previousConnection: "承接前一節證據。",
+  nextConnection: "準備下一節修訂。",
+  ...overrides,
+});
+
+const unitBlueprint = {
+  unitArc: "先診斷概念，再練習資料判讀，最後完成倡議並遷移。",
+  lessons: [
+    blueprintLesson(1, {
+      title: "辨識校園氣候風險",
+      milestone: undefined,
+      outcomeIds: [],
+      evidenceItemIds: ["evidence-diagnostic-1"],
+      previousConnection: "連結生活中的高溫經驗。",
+    }),
+    blueprintLesson(2, {
+      title: "用資料支持判斷",
+    }),
+    blueprintLesson(3, {
+      title: "倡議、回饋與遷移",
+      outcomeIds: ["four-elements-practice"],
+      evidenceItemIds: ["evidence-summative-1", "evidence-transfer-1"],
+      nextConnection: "將策略遷移到新的社區案例。",
+    }),
+  ],
+};
+
 await mkdir(outputDir, { recursive: true });
 const browser = await chromium.launch({
   executablePath: chromePath,
@@ -91,6 +244,8 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   const page = await context.newPage();
   let requestCount = 0;
   let geminiHeaderVerified = false;
+  let evidenceResponseCount = 0;
+  let forceEvidenceFailure = false;
 
   await page.addInitScript(() => {
     if (window.location.pathname.includes("/course-ideation/")) {
@@ -126,12 +281,20 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       const body = JSON.parse(route.request().postData() ?? "{}");
       const schemaProperties =
         body?.generationConfig?.responseJsonSchema?.properties ?? {};
-      const output =
-        "themes" in schemaProperties
-          ? keywordAnalysis
-          : "recommendations" in schemaProperties
-            ? courseAlignment
-            : null;
+      let output = null;
+      if ("themes" in schemaProperties) {
+        output = keywordAnalysis;
+      } else if ("recommendations" in schemaProperties) {
+        output = courseAlignment;
+      } else if ("performanceTask" in schemaProperties) {
+        evidenceResponseCount += 1;
+        output =
+          forceEvidenceFailure || evidenceResponseCount === 1
+            ? { ...evidencePlan, questionMaps: [] }
+            : evidencePlan;
+      } else if ("unitArc" in schemaProperties) {
+        output = JSON.stringify(unitBlueprint);
+      }
       if (!output) {
         await route.fulfill({
           status: 400,
@@ -184,8 +347,23 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   await consent.getByRole("button", { name: "同意並繼續" }).click();
 
   await page.getByText(keywordAnalysis.summary, { exact: true }).waitFor();
-  await page.getByRole("button", { name: "進入 6Cs 對齊與進程導航" }).click();
+  await page.getByRole("heading", { name: "108 課綱校準" }).waitFor();
+  await page.getByRole("button", { name: "進行 108 課綱與 6Cs 校準" }).click();
   await page.getByRole("heading", { name: "6Cs 子向度推薦" }).waitFor();
+  await page.getByText("地 1c-Ⅴ-1", { exact: true }).first().waitFor();
+  await page.getByText("地 Ba-Ⅴ-5", { exact: true }).first().waitFor();
+  await page
+    .getByText("能引用資料說明至少兩項氣候風險。", { exact: true })
+    .waitFor();
+  if (name === "desktop") {
+    await page
+      .getByRole("heading", { name: "108 課綱校準" })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: `${outputDir}/curriculum-desktop.png`,
+      fullPage: false,
+    });
+  }
 
   if (requestCount !== 2) {
     throw new Error(`${name} AI 請求次數錯誤：${requestCount}`);
@@ -209,6 +387,108 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   }
   for (const element of ["學習夥伴關係", "學習環境", "數位利用", "教學實踐"]) {
     await page.getByRole("heading", { name: element, exact: true }).waitFor();
+  }
+
+  await page
+    .getByRole("button", { name: "確認並鎖定學習終點" })
+    .click();
+  await page.getByText("教師已確認", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "AI 建立完整評量證據" }).click();
+  await page
+    .getByRole("heading", { name: "真實總結任務" })
+    .first()
+    .waitFor();
+  await page.getByText("課前 Q1–Q4", { exact: true }).first().waitFor();
+  await page
+    .getByText("逐項編修評量證據草稿", { exact: true })
+    .click();
+  await page
+    .locator("label")
+    .filter({ hasText: /^目標/ })
+    .locator("textarea")
+    .first()
+    .fill("提出可執行的校園氣候調適方案（教師修訂）。");
+  await page
+    .getByRole("button", { name: "確認證據，前往節次藍圖" })
+    .click();
+  await page.getByLabel("總節數").fill("3");
+  await page.getByRole("button", { name: "AI 產生單元節次藍圖" }).click();
+  await page
+    .getByRole("heading", { name: "3 節完整教案與學習單提示詞已準備" })
+    .waitFor();
+  await page
+    .getByText("查看 3 節藍圖摘要", { exact: true })
+    .click();
+  await page.getByText("用資料支持判斷", { exact: true }).waitFor();
+  if (
+    await page.getByRole("button", { name: "預覽", exact: true }).count()
+  ) {
+    throw new Error(`${name} 不應再顯示逐節提示詞按鈕`);
+  }
+
+  await page.getByRole("button", { name: "預覽完整提示詞" }).click();
+  const promptDialog = page.getByRole("dialog", {
+    name: "Gemini Canvas 提示詞預覽",
+  });
+  await promptDialog.waitFor();
+  const fullPrompt = await promptDialog
+    .getByLabel("完整 Canvas 提示詞")
+    .inputValue();
+  for (const expected of [
+    "一次完成資料中列出的全部節次",
+    '"lessonNumber": 1',
+    '"lessonNumber": 2',
+    '"lessonNumber": 3',
+    '"title": "用資料支持判斷"',
+    "地 1c-Ⅴ-1",
+    "success-1",
+    '"minutes": 50',
+    '"heading": "A. 知識基礎"',
+    '"heading": "B. NPDL 子向度思考"',
+    "學生學習單與教師判讀指引",
+    "低科技替代路徑",
+  ]) {
+    if (!fullPrompt.includes(expected)) {
+      throw new Error(`${name} Canvas 提示詞缺少：${expected}`);
+    }
+  }
+  if (
+    fullPrompt.includes("notebooklm.google.com") ||
+    fullPrompt.includes("gemini-ui-smoke-placeholder")
+  ) {
+    throw new Error(`${name} Canvas 提示詞含禁止資料`);
+  }
+  await promptDialog.getByRole("button", { name: "關閉提示詞預覽" }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "下載 Markdown" }).click();
+  const download = await downloadPromise;
+  if (
+    !download.suggestedFilename().includes("3節完整教案與學習單") ||
+    !download.suggestedFilename().endsWith(".md")
+  ) {
+    throw new Error(`${name} Canvas 提示包未下載為 Markdown`);
+  }
+  await page.getByRole("button", { name: "標記外部產生" }).click();
+  await page.getByText("已在外部產生", { exact: true }).waitFor();
+
+  if (requestCount !== 5) {
+    throw new Error(`${name} AI 請求次數錯誤：${requestCount}`);
+  }
+
+  forceEvidenceFailure = true;
+  await page
+    .getByRole("button", { name: "重新建立並校準評量證據" })
+    .click();
+  await page
+    .getByText("評量證據必須恰好包含課前與課後兩組 Q1–Q4 地圖。", {
+      exact: true,
+    })
+    .waitFor();
+  await page
+    .getByRole("heading", { name: "3 節完整教案與學習單提示詞已準備" })
+    .waitFor();
+  if (requestCount !== 7) {
+    throw new Error(`${name} 修復失敗重試次數錯誤：${requestCount}`);
   }
 
   await page.getByRole("button", { name: "開啟 AI 設定" }).click();
@@ -235,6 +515,7 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       localStorage.getItem("npdl_xai_api_key") === null,
   );
   await settingsDialog.getByRole("button", { name: "完成設定" }).click();
+  await settingsDialog.waitFor({ state: "hidden" });
 
   const noHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -269,6 +550,22 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     );
     if (retainedHandoff !== null) {
       throw new Error(`${name} 評量工作室讀取後未清除一次性交接資料`);
+    }
+  } else {
+    const selectedCurriculum = page.locator(
+      'input[type="checkbox"]:checked:enabled',
+    );
+    if ((await selectedCurriculum.count()) < 2) {
+      throw new Error(`${name} 未顯示 AI 自動採用的課綱項目`);
+    }
+    await selectedCurriculum.last().uncheck();
+    await page
+      .getByText("教師已調整課綱選擇。舊的 6Cs 與三層成果已清除，請重新校準。", {
+        exact: true,
+      })
+      .waitFor();
+    if (await page.getByRole("heading", { name: "6Cs 子向度推薦" }).count()) {
+      throw new Error(`${name} 教師調整課綱後未清除舊 6Cs 結果`);
     }
   }
 
@@ -490,9 +787,9 @@ try {
     { width: 390, height: 844 },
     false,
   );
-  console.log(
-    `課程發想 UI smoke test 通過：8 組多學科測試範例、BYOK 模型隔離、三供應商金鑰保存／清除、錯誤資訊邊界、首次同意、兩階段 AI、6Cs 進程、三層成果、四要素、評量交接、桌面與手機版均正常。截圖：${outputDir}`,
-  );
+console.log(
+  `課程發想 UI smoke test 通過：8 組多學科測試範例、108 課綱校準與教師調整、BYOK 模型隔離、三供應商金鑰保存／清除、錯誤資訊邊界、首次同意、四階段 AI、單次結構修復與失敗保留、6Cs 進程、學習終點、完整評量證據、單元節次藍圖、Gemini Canvas 預覽／Markdown 下載、評量交接、桌面與手機版均正常。截圖：${outputDir}`,
+);
 } finally {
   await browser.close();
 }

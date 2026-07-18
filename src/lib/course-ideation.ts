@@ -2,13 +2,21 @@ import { INDICATORS, getIndicatorById } from "@/data/indicators";
 import type { GenerationPromptParts } from "@/lib/ai/client";
 import type { CourseForm } from "@/types";
 import {
+  buildTaiwanHighSchoolLabPrompt,
+  TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT,
+} from "@/lib/taiwan-high-school-context";
+import {
   COURSE_IDEATION_HANDOFF_VERSION,
   FOUR_ELEMENT_NAMES,
   type CourseAlignmentResult,
   type CourseIdeationHandoff,
   type CourseIdeationInput,
+  type CurrentCourseIdeationHandoff,
+  type CurriculumCandidateSet,
+  type CurriculumSelection,
   type FourElementName,
   type KeywordAnalysisResult,
+  type KnowledgeFoundationOutcome,
   type LearningOutcome,
 } from "@/types/course-ideation";
 
@@ -91,16 +99,83 @@ const learningOutcomeSchema = {
   },
 };
 
+const knowledgeFoundationOutcomeSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["statement", "evidence", "successCriteria"],
+  properties: {
+    statement: { type: "string" },
+    evidence: { type: "string" },
+    successCriteria: {
+      type: "array",
+      minItems: 2,
+      maxItems: 4,
+      items: { type: "string" },
+    },
+  },
+};
+
 export const COURSE_ALIGNMENT_SCHEMA: Record<string, unknown> = {
   type: "object",
   additionalProperties: false,
   required: [
+    "curriculumSelection",
+    "backwardDesign",
     "recommendations",
     "learningOutcomes",
     "fourElements",
     "evidenceTools",
   ],
   properties: {
+    curriculumSelection: {
+      type: "object",
+      additionalProperties: false,
+      required: ["performanceIds", "contentIds", "rationale"],
+      properties: {
+        performanceIds: {
+          type: "array",
+          minItems: 1,
+          maxItems: 2,
+          items: { type: "string" },
+        },
+        contentIds: {
+          type: "array",
+          minItems: 1,
+          maxItems: 3,
+          items: { type: "string" },
+        },
+        rationale: { type: "string" },
+      },
+    },
+    backwardDesign: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "transferGoals",
+        "enduringUnderstandings",
+        "essentialQuestions",
+      ],
+      properties: {
+        transferGoals: {
+          type: "array",
+          minItems: 1,
+          maxItems: 2,
+          items: { type: "string" },
+        },
+        enduringUnderstandings: {
+          type: "array",
+          minItems: 1,
+          maxItems: 3,
+          items: { type: "string" },
+        },
+        essentialQuestions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 3,
+          items: { type: "string" },
+        },
+      },
+    },
     recommendations: {
       type: "array",
       minItems: 1,
@@ -130,7 +205,7 @@ export const COURSE_ALIGNMENT_SCHEMA: Record<string, unknown> = {
         "fourElementsPractice",
       ],
       properties: {
-        knowledgeFoundation: learningOutcomeSchema,
+        knowledgeFoundation: knowledgeFoundationOutcomeSchema,
         competencySubdimension: learningOutcomeSchema,
         fourElementsPractice: learningOutcomeSchema,
       },
@@ -285,6 +360,114 @@ function requiredOutcome(value: unknown, field: string): LearningOutcome {
   };
 }
 
+function requiredKnowledgeFoundation(
+  value: unknown,
+  field: string,
+): KnowledgeFoundationOutcome {
+  const outcome = requiredOutcome(value, field);
+  const record = value as Record<string, unknown>;
+  return {
+    ...outcome,
+    successCriteria: requiredTextArray(
+      record.successCriteria,
+      `${field}.successCriteria`,
+      2,
+      4,
+    ),
+  };
+}
+
+function requiredTextArray(
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+): string[] {
+  if (!Array.isArray(value)) responseError(`AI 回應缺少 ${field}。`);
+  if (value.length < minimum || value.length > maximum) {
+    responseError(`AI 回應的 ${field} 數量不合法。`);
+  }
+  const output = value.map((item, index) =>
+    requiredString(item, `${field}[${index}]`),
+  );
+  if (new Set(output).size !== output.length) {
+    responseError(`AI 回應的 ${field} 含有重複項目。`);
+  }
+  return output;
+}
+
+function requiredIdArray(
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+): string[] {
+  if (!Array.isArray(value)) responseError(`AI 回應缺少 ${field}。`);
+  if (value.length < minimum || value.length > maximum) {
+    responseError(`AI 回應的 ${field} 數量不合法。`);
+  }
+  const ids = value.map((item, index) =>
+    requiredString(item, `${field}[${index}]`),
+  );
+  if (new Set(ids).size !== ids.length) {
+    responseError(`AI 回應的 ${field} 含有重複 ID。`);
+  }
+  return ids;
+}
+
+function parseCurriculumSelection(
+  value: unknown,
+  candidates: CurriculumCandidateSet,
+  mode: CurriculumSelection["mode"],
+): CurriculumSelection {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    responseError("AI 回應缺少 curriculumSelection。");
+  }
+  const record = value as Record<string, unknown>;
+  const performanceIds = requiredIdArray(
+    record.performanceIds,
+    "curriculumSelection.performanceIds",
+    1,
+    2,
+  );
+  const contentIds = requiredIdArray(
+    record.contentIds,
+    "curriculumSelection.contentIds",
+    1,
+    3,
+  );
+  const validateIds = (
+    ids: string[],
+    allowedIds: Set<string>,
+    field: string,
+  ) => {
+    for (const id of ids) {
+      if (!allowedIds.has(id)) {
+        responseError(`AI 回應的 ${field} 含有未知或不適用的課綱 ID：${id}。`);
+      }
+    }
+  };
+  validateIds(
+    performanceIds,
+    new Set(candidates.performances.map((entry) => entry.id)),
+    "curriculumSelection.performanceIds",
+  );
+  validateIds(
+    contentIds,
+    new Set(candidates.contents.map((entry) => entry.id)),
+    "curriculumSelection.contentIds",
+  );
+  return {
+    performanceIds,
+    contentIds,
+    rationale: requiredString(
+      record.rationale,
+      "curriculumSelection.rationale",
+    ),
+    mode,
+  };
+}
+
 export function parseKeywordAnalysis(
   raw: string,
   model: string,
@@ -385,8 +568,23 @@ export function parseKeywordAnalysis(
 export function parseCourseAlignment(
   raw: string,
   model: string,
+  candidates: CurriculumCandidateSet,
+  selectionMode: CurriculumSelection["mode"] = "ai_auto",
 ): CourseAlignmentResult {
   const parsed = parseJsonObject(raw);
+  const curriculumSelection = parseCurriculumSelection(
+    parsed.curriculumSelection,
+    candidates,
+    selectionMode,
+  );
+  if (
+    !parsed.backwardDesign ||
+    typeof parsed.backwardDesign !== "object" ||
+    Array.isArray(parsed.backwardDesign)
+  ) {
+    responseError("AI 回應缺少 backwardDesign。");
+  }
+  const backwardDesign = parsed.backwardDesign as Record<string, unknown>;
   if (!Array.isArray(parsed.recommendations)) {
     responseError("AI 回應缺少 recommendations。");
   }
@@ -466,9 +664,30 @@ export function parseCourseAlignment(
   });
 
   return {
+    curriculumSelection,
+    backwardDesign: {
+      transferGoals: requiredTextArray(
+        backwardDesign.transferGoals,
+        "backwardDesign.transferGoals",
+        1,
+        2,
+      ),
+      enduringUnderstandings: requiredTextArray(
+        backwardDesign.enduringUnderstandings,
+        "backwardDesign.enduringUnderstandings",
+        1,
+        3,
+      ),
+      essentialQuestions: requiredTextArray(
+        backwardDesign.essentialQuestions,
+        "backwardDesign.essentialQuestions",
+        1,
+        3,
+      ),
+    },
     recommendations,
     learningOutcomes: {
-      knowledgeFoundation: requiredOutcome(
+      knowledgeFoundation: requiredKnowledgeFoundation(
         outcomes.knowledgeFoundation,
         "learningOutcomes.knowledgeFoundation",
       ),
@@ -500,6 +719,7 @@ export function buildKeywordAnalysisPrompt(
 任務是把教師提供的 3–5 個核心關鍵字整理成可供後續 6Cs 對齊的結構化分析。
 遵循逆向設計：先辨識學生要理解的學科內容、可遷移到真實世界的問題，以及能證明學會的成功表現；此階段不可直接跳到活動清單。
 不得虛構課綱條文、不得加入學生姓名或個資、不得把模糊詞包裝成已確認事實。
+${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
 只輸出符合 JSON Schema 的繁體中文 JSON。`,
     dynamic: `【課程輸入】
 - 年級：${input.grade}
@@ -508,17 +728,22 @@ export function buildKeywordAnalysisPrompt(
 - 教學主題：${input.teachingTopic}
 - 核心關鍵字：${normalizeCoreKeywords(input.coreKeywords).join("、")}
 
+${buildTaiwanHighSchoolLabPrompt(input.subject)}
+
 【分析要求】
-1. summary：用 2–3 句連結學科學習核心與真實世界問題；不可只重述關鍵字或直接列教學活動。
-2. themes：整理 2–4 個主題群，每群指出包含的原始關鍵字與教育意義，並區分內容概念、真實情境、學生行動或預期證據。
-3. curriculumSignals：列出 2–4 個後續對齊 6Cs 的訊號。每項至少包含「學生要做的可觀察行動」或「能證明學會的作品／表現」，並至少有一項指向新情境的應用或遷移。
-4. suggestedKeywords：只有在能補足明顯缺口時才提供，最多 3 個，不可取代教師原始關鍵字。`,
+1. summary：用 2–3 句連結學科學習核心與真實世界問題；真實問題須能縮小成校內、社區公開資料或模擬情境可探究的尺度，不可只重述關鍵字或直接列教學活動。
+2. themes：整理 2–4 個主題群，每群指出包含的原始關鍵字與教育意義，並區分內容概念、真實情境、學生行動或預期證據；不得暗示需要未提供的昂貴設備、校外人脈或長期行政協調。
+3. curriculumSignals：列出 2–4 個後續對齊 6Cs 的訊號。每項至少包含「在一般高中課堂能完成的可觀察行動」或「能以紙本、口頭、簡報、圖表、草圖或低擬真原型留下的作品／表現」，並至少有一項指向新情境的應用或遷移。
+4. suggestedKeywords：只有在能補足明顯缺口時才提供，最多 3 個，不可取代教師原始關鍵字；不得加入會把課程推向昂貴技術、公開競賽或難以取得外部合作的關鍵字。
+5. 若原始構想超出台灣高中一般現場，保留其學習目的，但把執行尺度改寫成校內、小組、公開資料、模擬或低科技版本。`,
   };
 }
 
 export function buildCourseAlignmentPrompt(
   input: CourseIdeationInput,
   analysis: KeywordAnalysisResult,
+  candidates: CurriculumCandidateSet,
+  preferredSelection?: CurriculumSelection | null,
 ): GenerationPromptParts {
   const catalog = INDICATORS.map((indicator) => ({
     id: indicator.id,
@@ -528,10 +753,12 @@ export function buildCourseAlignmentPrompt(
   return {
     stable: `你是精通 NPDL（New Pedagogies for Deep Learning）的資深課程設計顧問。
 請從提供的受控 6Cs 子向度目錄中推薦 1–2 個最適合的子向度，不得建立不存在的 ID。
+先從提供的受控 108 課綱候選中採用 1–2 項學習表現與 1–3 項學習內容，再進行 6Cs 對齊。只能輸出候選目錄內的完整 ID，不得建立、改寫或猜測 ID。
 推薦必須依據學生在任務中要執行的具體認知或實作行為及其可觀察證據；禁止只因主題名稱或關鍵字相似就配對素養。
 學習成果必須形成三層遞進：知識基礎 → 素養子向度 → NPDL 學習設計四要素整合實踐。
 三層不是三個平行活動：後一層必須運用前一層，並逐步提高學生的責任、獨立性與向真實或新情境遷移的程度。
 「四要素」不是 Engage/Explore/Explain/Elaborate 教學循環，也不得稱為 4E。
+${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
 
 【NPDL 學習設計四要素定義】
 ${FOUR_ELEMENT_NAMES.map((name) => `- ${name}：${fourElementDefinitions[name]}`).join("\n")}
@@ -561,14 +788,57 @@ ${JSON.stringify(
   2,
 )}
 
+${buildTaiwanHighSchoolLabPrompt(input.subject)}
+
+【受控 108 課綱候選目錄】
+${JSON.stringify(
+  {
+    learningPerformances: candidates.performances.map((entry) => ({
+      id: entry.id,
+      code: entry.code,
+      text: entry.text,
+      stage: entry.stage,
+      subject: entry.subject,
+      courseType: entry.courseType,
+      source: entry.sourceDocumentTitle,
+    })),
+    learningContents: candidates.contents.map((entry) => ({
+      id: entry.id,
+      code: entry.code,
+      text: entry.text,
+      stage: entry.stage,
+      subject: entry.subject,
+      courseType: entry.courseType,
+      source: entry.sourceDocumentTitle,
+    })),
+  },
+  null,
+  2,
+)}
+
+${preferredSelection?.mode === "teacher_edited"
+  ? `【教師已調整的課綱選擇】
+必須原樣輸出下列 ID，不得替換：
+${JSON.stringify(
+  {
+    performanceIds: preferredSelection.performanceIds,
+    contentIds: preferredSelection.contentIds,
+  },
+  null,
+  2,
+)}`
+  : "【課綱採用方式】\n請依課程輸入與階段一分析，自動採用最相關的候選條目。"}
+
 【可用 6Cs 子向度目錄】
 ${JSON.stringify(catalog, null, 2)}
 
 【輸出要求】
-1. recommendations：推薦 1–2 個子向度。每項理由必須完整連結「課程任務 → 學生具體認知或實作行為 → 可觀察證據」，不得只做名詞配對。
-2. learningOutcomes：三層各提供一項可觀察、可評量的成果 statement，並提供 evidence。知識基礎回答「學生理解並能說明什麼」；素養子向度回答「學生運用知識能做什麼」；四要素整合實踐回答「學生如何在真實或新情境中整合行動並產出結果」。不得只使用「了解、認識、培養」等無法直接觀察的動詞。
-3. fourElements：四個要素各恰好一次，且共同支撐同一個整合實踐成果，不得生成四個互不相干的裝飾性活動。designMove 要說明教師如何安排該要素、如何與至少另一要素連動，以及如何逐步把學習責任交給學生；studentEvidence 要寫學生實際留下的作品、行動、互動或修訂證據。數位利用必須深化知識建構、協作、創造或分享，不可只列工具名稱。
-4. evidenceTools：列出 2–5 個能帶入後續評量設計的工具或證據形式。`,
+1. curriculumSelection：採用 1–2 個 learningPerformances ID 與 1–3 個 learningContents ID，rationale 說明所選課綱與單元、關鍵字及預期學生表現的關係。不得抄寫或改寫課綱原文。
+2. backwardDesign：transferGoals 寫學生在離開本單元後能獨立遷移的行動；enduringUnderstandings 寫值得長期保留的關係或原理；essentialQuestions 寫可貫穿單元且不能只用單一事實回答的探究問題。
+3. recommendations：推薦 1–2 個子向度。每項理由必須完整連結「課程任務 → 學生具體認知或實作行為 → 可觀察證據」，不得只做名詞配對。
+4. learningOutcomes：三層各提供一項可觀察、可評量的成果 statement，並提供 evidence。知識基礎須以採用的課綱條目為錨點，另提供 2–4 項 successCriteria；素養子向度回答「學生運用知識能做什麼」；四要素整合實踐回答「學生如何在真實或新情境中整合行動並產出結果」。不得只使用「了解、認識、培養」等無法直接觀察的動詞。
+5. fourElements：四個要素各恰好一次，且共同支撐同一個整合實踐成果，不得生成四個互不相干的裝飾性活動。designMove 要說明教師如何安排該要素、如何與至少另一要素連動，以及如何逐步把學習責任交給學生；studentEvidence 要寫學生實際留下的作品、行動、互動或修訂證據。數位利用必須深化知識建構、協作、創造或分享，不可只列工具名稱，且須有紙本或離線替代路徑。
+6. evidenceTools：列出 2–5 個能帶入後續評量設計的工具或證據形式，必須可由一般高中教師在正常課時內蒐集與判讀，不得預設付費平台或一人一機。`,
   };
 }
 
@@ -576,14 +846,16 @@ export function buildCourseIdeationHandoff(
   input: CourseIdeationInput,
   alignment: CourseAlignmentResult,
   selectedIndicatorId: string,
+  projectId: string,
   now = Date.now(),
-): CourseIdeationHandoff {
+): CurrentCourseIdeationHandoff {
   if (!alignment.recommendations.some((item) => item.indicatorId === selectedIndicatorId)) {
     throw new Error("所選子向度不在目前推薦結果中。");
   }
   return {
     version: COURSE_IDEATION_HANDOFF_VERSION,
     createdAt: now,
+    projectId: requiredString(projectId, "projectId"),
     input: {
       ...input,
       grade: input.grade.trim(),
@@ -603,7 +875,9 @@ export function isValidCourseIdeationHandoff(
 ): value is CourseIdeationHandoff {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const handoff = value as Partial<CourseIdeationHandoff>;
-  if (handoff.version !== COURSE_IDEATION_HANDOFF_VERSION) return false;
+  if (handoff.version !== 1 && handoff.version !== COURSE_IDEATION_HANDOFF_VERSION) {
+    return false;
+  }
   if (
     typeof handoff.createdAt !== "number" ||
     !Number.isFinite(handoff.createdAt) ||
@@ -614,6 +888,13 @@ export function isValidCourseIdeationHandoff(
   }
   if (!handoff.input || validateCourseIdeationInput(handoff.input).length > 0) return false;
   if (typeof handoff.selectedIndicatorId !== "string" || !getIndicatorById(handoff.selectedIndicatorId)) {
+    return false;
+  }
+  if (
+    handoff.version === COURSE_IDEATION_HANDOFF_VERSION &&
+    (typeof handoff.projectId !== "string" ||
+      !/^[a-z0-9-]{8,100}$/i.test(handoff.projectId))
+  ) {
     return false;
   }
   return (

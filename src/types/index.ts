@@ -59,6 +59,7 @@ export interface SavedQuestion extends ParsedQuestion {
 export interface DraftState {
   form: CourseForm;
   assessmentDocument: AssessmentDocument | null;
+  assessmentDesignContext?: import("./course-ideation").AssessmentDesignContext | null;
   /** 只供從 v2 升級的舊草稿使用；新版生成內容一律由 assessmentDocument 衍生。 */
   legacyMarkdown?: string | null;
   activeModuleTab: ModuleTab;

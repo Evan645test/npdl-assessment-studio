@@ -1,0 +1,32 @@
+{
+  "snapshotVersion": "2026-07-18",
+  "notebookUrl": "https://notebooklm.google.com/notebook/39674c51-5851-4779-bb87-4cc8f056fcea",
+  "verification": "NotebookLM 分領域雙次檢索；生物第五學習階段另以國家教育研究院正式自然科學領綱交叉確認。",
+  "sources": [
+    {
+      "sourceName": "586246ee96b1863ae84d9e331aceab58.pdf",
+      "sourceDocumentTitle": "十二年國民基本教育課程綱要－自然科學領域",
+      "sourceVersion": "108課綱"
+    },
+    {
+      "sourceName": "07e3e438c912840abb3eb5b9431f49a2.pdf",
+      "sourceDocumentTitle": "十二年國民基本教育課程綱要－數學領域",
+      "sourceVersion": "108課綱"
+    },
+    {
+      "sourceName": "7aff19ef0fd73fb140a8931d15df27ef.pdf",
+      "sourceDocumentTitle": "十二年國民基本教育課程綱要－語文領域（國語文）",
+      "sourceVersion": "108課綱"
+    },
+    {
+      "sourceName": "fa8f0c31ec402aeab716067019f19078.pdf",
+      "sourceDocumentTitle": "十二年國民基本教育課程綱要－語文領域（英語文）",
+      "sourceVersion": "108課綱"
+    },
+    {
+      "sourceName": "947c93212ee6bb105846e346696a7526.pdf",
+      "sourceDocumentTitle": "十二年國民基本教育課程綱要－社會領域",
+      "sourceVersion": "108課綱"
+    }
+  ]
+}

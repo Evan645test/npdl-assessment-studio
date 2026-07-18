@@ -25,6 +25,7 @@ import {
 } from "@/lib/validate-output";
 import { normalizeAssessmentQuestionStems } from "@/lib/question-contracts";
 import type { AssessmentDocument, CourseForm, GenerationProgress, Indicator } from "@/types";
+import type { AssessmentDesignContext } from "@/types/course-ideation";
 
 export type AssessmentGenerateFn = (
   prompt: string | GenerationPromptParts,
@@ -43,6 +44,7 @@ export interface AssessmentGenerationInput {
   geminiKey: string;
   openaiKey: string;
   xaiKey: string;
+  designContext?: AssessmentDesignContext | null;
   onProgress?: (progress: GenerationProgress) => void;
 }
 
@@ -95,7 +97,12 @@ async function generateStructuredAssessment(
   generate: AssessmentGenerateFn,
 ): Promise<AssessmentGenerationResult> {
   const raw = await generate(
-    buildStructuredGeneratePrompt(input.form, input.indicator, input.pdfExcerpt),
+    buildStructuredGeneratePrompt(
+      input.form,
+      input.indicator,
+      input.pdfExcerpt,
+      input.designContext,
+    ),
     input.model,
     input.geminiKey,
     input.openaiKey,
@@ -117,6 +124,7 @@ async function generateStructuredAssessment(
         raw,
         primaryError instanceof Error ? primaryError.message : String(primaryError),
         input.form,
+        input.designContext,
       ),
       input.model,
       input.geminiKey,
@@ -159,6 +167,7 @@ async function generateStructuredAssessment(
         targets.includes("global"),
         repairContext,
         patchSchema,
+        input.designContext,
       ),
       input.model,
       input.geminiKey,

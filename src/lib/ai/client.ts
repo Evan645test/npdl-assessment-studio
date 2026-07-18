@@ -291,13 +291,16 @@ export async function generateWithGemini(
   const streamQuery = options.onProgress ? "?alt=sse" : "";
   const generationConfig: Record<string, unknown> = { temperature: 0.7 };
   if (options.structured) {
+    generationConfig.maxOutputTokens = 32768;
     generationConfig.responseMimeType = "application/json";
     generationConfig.responseJsonSchema = options.structured.schema;
   }
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:${method}${streamQuery}`,
-    {
+  const endpoint =
+    `https://generativelanguage.googleapis.com/v1beta/models/` +
+    `${encodeURIComponent(model)}:${method}${streamQuery}`;
+  const request = (config: Record<string, unknown>) =>
+    fetch(endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -305,10 +308,22 @@ export async function generateWithGemini(
       },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: promptText(prompt) }] }],
-        generationConfig,
+        generationConfig: config,
       }),
-    },
-  );
+    });
+
+  let response = await request(generationConfig);
+  if (options.structured && response.status === 400) {
+    const diagnostic = await response
+      .clone()
+      .text()
+      .catch(() => "");
+    if (/\binvalid(?:_| )argument\b/i.test(diagnostic)) {
+      const jsonModeConfig = { ...generationConfig };
+      delete jsonModeConfig.responseJsonSchema;
+      response = await request(jsonModeConfig);
+    }
+  }
 
   if (!response.ok) await throwProviderError(response, "Gemini");
 

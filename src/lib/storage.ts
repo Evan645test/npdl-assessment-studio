@@ -13,6 +13,7 @@ const KEYS = {
   courseIdeationModel: "npdl_course_ideation_model_v2",
   courseIdeationConsent: "npdl_course_ideation_ai_consent_v2",
   courseIdeationHandoff: "npdl_course_ideation_handoff_v1",
+  learningDesignProject: "npdl_learning_design_project_v1",
 } as const;
 
 export function readStorage(key: string): string | null {

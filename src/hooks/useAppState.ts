@@ -20,6 +20,10 @@ import {
   courseIdeationHandoffToForm,
   isValidCourseIdeationHandoff,
 } from "@/lib/course-ideation";
+import {
+  buildAssessmentDesignContext,
+  isValidLearningDesignProject,
+} from "@/lib/learning-design";
 import { toUserErrorMessage } from "@/lib/errors";
 import { splitModules } from "@/lib/markdown";
 import {
@@ -42,7 +46,11 @@ import type {
   RefineTarget,
   SavedQuestion,
 } from "@/types";
-import type { CourseIdeationHandoff } from "@/types/course-ideation";
+import type {
+  AssessmentDesignContext,
+  CourseIdeationHandoff,
+  LearningDesignProjectV1,
+} from "@/types/course-ideation";
 
 const MANAGED_GOOGLE_OAUTH_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID?.trim() ?? "";
@@ -65,6 +73,8 @@ function readSettings() {
 export function useAppState() {
   const [form, setForm] = useState<CourseForm>(DEFAULT_FORM);
   const [assessmentDocument, setAssessmentDocument] = useState<AssessmentDocument | null>(null);
+  const [assessmentDesignContext, setAssessmentDesignContext] =
+    useState<AssessmentDesignContext | null>(null);
   const [generatedMarkdown, setGeneratedMarkdown] = useState<string | null>(null);
   const [activeModuleTab, setActiveModuleTab] = useState<ModuleTab>(0);
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("desktop");
@@ -138,12 +148,19 @@ export function useAppState() {
     const draft: DraftState = {
       form,
       assessmentDocument,
+      assessmentDesignContext,
       legacyMarkdown: assessmentDocument ? undefined : generatedMarkdown,
       activeModuleTab,
       savedAt: Date.now(),
     };
     writeJson(KEYS.draft, draft);
-  }, [form, assessmentDocument, activeModuleTab, draftStorageReady]);
+  }, [
+    form,
+    assessmentDocument,
+    assessmentDesignContext,
+    activeModuleTab,
+    draftStorageReady,
+  ]);
 
   useEffect(() => {
     const handoff = readJson<CourseIdeationHandoff | null>(
@@ -152,6 +169,18 @@ export function useAppState() {
     );
     if (isValidCourseIdeationHandoff(handoff)) {
       setForm(courseIdeationHandoffToForm(handoff));
+      if (handoff.version === 2) {
+        const project = readJson<LearningDesignProjectV1 | null>(
+          KEYS.learningDesignProject,
+          null,
+        );
+        if (
+          isValidLearningDesignProject(project) &&
+          project.id === handoff.projectId
+        ) {
+          setAssessmentDesignContext(buildAssessmentDesignContext(project));
+        }
+      }
       setMobileStep(2);
       setDraftPrompt(null);
       setHandoffNotice("已帶入課程發想結果，請確認推薦子向度後再生成評量。");
@@ -196,6 +225,11 @@ export function useAppState() {
       normalizedMarkdown = normalizeGeneratedQ4Markdown(draftPrompt.generatedMarkdown, draftPrompt.form);
     }
     setForm(draftPrompt.form);
+    setAssessmentDesignContext(
+      "assessmentDesignContext" in draftPrompt
+        ? draftPrompt.assessmentDesignContext ?? null
+        : null,
+    );
     setAssessmentDocument(restoredDocument);
     setGeneratedMarkdown(normalizedMarkdown);
     setValidation(
@@ -246,6 +280,7 @@ export function useAppState() {
         geminiKey: settings.geminiKey,
         openaiKey: settings.openaiKey,
         xaiKey: settings.xaiKey,
+        designContext: assessmentDesignContext,
         onProgress: (progress) => {
           if (progress.receivedChars > 0 && firstDeltaMs === null) {
             firstDeltaMs = performance.now() - startedAt;
@@ -259,6 +294,26 @@ export function useAppState() {
       setAssessmentDocument(result.document);
       setGeneratedMarkdown(result.markdown);
       setActiveModuleTab(0);
+      if (assessmentDesignContext?.projectId) {
+        const project = readJson<LearningDesignProjectV1 | null>(
+          KEYS.learningDesignProject,
+          null,
+        );
+        if (
+          isValidLearningDesignProject(project) &&
+          project.id === assessmentDesignContext.projectId &&
+          project.evidencePlan
+        ) {
+          writeJson(KEYS.learningDesignProject, {
+            ...project,
+            updatedAt: Date.now(),
+            evidencePlan: {
+              ...project.evidencePlan,
+              assessmentDocument: result.document,
+            },
+          });
+        }
+      }
       if (import.meta.env.DEV) {
         console.info("[assessment-performance]", {
           firstDeltaMs: firstDeltaMs === null ? null : Math.round(firstDeltaMs),
@@ -277,7 +332,16 @@ export function useAppState() {
       setGenerating(false);
       setGenerationProgress(null);
     }
-  }, [canGenerate, hasSelectedModelKey, selectedModelProvider, form, indicator, pdfExcerpt, settings]);
+  }, [
+    canGenerate,
+    hasSelectedModelKey,
+    selectedModelProvider,
+    form,
+    indicator,
+    pdfExcerpt,
+    settings,
+    assessmentDesignContext,
+  ]);
 
   const runIdeation = useCallback(async () => {
     if (!form.activityName.trim()) return;

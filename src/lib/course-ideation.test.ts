@@ -11,6 +11,7 @@ import {
   parseKeywordAnalysis,
   validateCourseIdeationInput,
 } from "@/lib/course-ideation";
+import { getCurriculumCandidates } from "@/lib/curriculum";
 import type {
   CourseAlignmentResult,
   CourseIdeationInput,
@@ -44,7 +45,22 @@ const ANALYSIS: KeywordAnalysisResult = {
   model: "gpt-4.1",
 };
 
+const CURRICULUM_CANDIDATES = getCurriculumCandidates(INPUT, ANALYSIS);
+
 const ALIGNMENT: CourseAlignmentResult = {
+  curriculumSelection: {
+    performanceIds: ["geography-v-performance-inquiry-1"],
+    contentIds: ["geography-v-content-climate-5"],
+    rationale: "課程聚焦氣候資料分析與調適方案，對應地理探究表現與氣候內容。",
+    mode: "ai_auto",
+  },
+  backwardDesign: {
+    transferGoals: ["能在新的校園氣候情境中，以資料判讀風險並提出調適方案。"],
+    enduringUnderstandings: [
+      "氣候風險需要結合自然現象、在地脆弱度與資料證據來判斷。",
+    ],
+    essentialQuestions: ["我們如何用證據判斷校園最需要優先處理的氣候風險？"],
+  },
   recommendations: [
     {
       indicatorId: "C2-P1",
@@ -61,6 +77,10 @@ const ALIGNMENT: CourseAlignmentResult = {
     knowledgeFoundation: {
       statement: "能說明極端氣候與校園熱島的成因及影響。",
       evidence: "概念圖與資料摘要。",
+      successCriteria: [
+        "能引用資料說明至少兩項氣候風險。",
+        "能區分氣候現象、影響與調適措施。",
+      ],
     },
     competencySubdimension: {
       statement: "能組織多項資料並形成有證據的判斷。",
@@ -128,7 +148,11 @@ describe("course ideation contracts", () => {
 
   it("builds prompts that preserve the teacher input and official four elements", () => {
     const keywordPrompt = buildKeywordAnalysisPrompt(INPUT);
-    const alignmentPrompt = buildCourseAlignmentPrompt(INPUT, ANALYSIS);
+    const alignmentPrompt = buildCourseAlignmentPrompt(
+      INPUT,
+      ANALYSIS,
+      CURRICULUM_CANDIDATES,
+    );
 
     expect(keywordPrompt.dynamic).toContain("極端氣候、校園熱島、數據證據、小組倡議");
     expect(alignmentPrompt.stable).toContain("學習夥伴關係");
@@ -137,14 +161,31 @@ describe("course ideation contracts", () => {
     expect(alignmentPrompt.stable).toContain("教學實踐");
     expect(alignmentPrompt.stable).toContain("不得稱為 4E");
     expect(keywordPrompt.stable).toContain("成功表現");
+    expect(keywordPrompt.stable).toContain("一班約 30–40 位學生");
+    expect(keywordPrompt.stable).toContain("不得預設學生一人一機");
     expect(keywordPrompt.dynamic).toContain("新情境的應用或遷移");
+    expect(keywordPrompt.dynamic).toContain("校內、小組、公開資料、模擬或低科技版本");
     expect(alignmentPrompt.stable).toContain("禁止只因主題名稱或關鍵字相似");
+    expect(alignmentPrompt.stable).toContain("低科技替代路徑");
     expect(alignmentPrompt.dynamic).toContain(
       "課程任務 → 學生具體認知或實作行為 → 可觀察證據",
     );
     expect(alignmentPrompt.dynamic).toContain("四個互不相干的裝飾性活動");
     expect(alignmentPrompt.dynamic).toContain("不可只列工具名稱");
+    expect(alignmentPrompt.dynamic).toContain("紙本或離線替代路徑");
     expect(alignmentPrompt.dynamic).toContain('"id": "C2-P1"');
+    expect(alignmentPrompt.dynamic).toContain(
+      '"id": "geography-v-content-climate-5"',
+    );
+
+    const chemistryPrompt = buildKeywordAnalysisPrompt({
+      ...INPUT,
+      subject: "化學",
+    });
+    expect(chemistryPrompt.dynamic).toContain("燒杯、試管");
+    expect(chemistryPrompt.dynamic).toContain("廢液分類與回收方式");
+    expect(chemistryPrompt.dynamic).toContain("仍須教師確認數量與可用狀態");
+    expect(chemistryPrompt.dynamic).not.toContain("複式光學顯微鏡");
   });
 
   it("parses fenced keyword JSON and rejects an incomplete analysis", () => {
@@ -265,21 +306,36 @@ ${JSON.stringify({
 
   it("accepts a valid alignment and rejects unknown or duplicate controlled values", () => {
     const raw = JSON.stringify({
+      curriculumSelection: {
+        performanceIds: ALIGNMENT.curriculumSelection.performanceIds,
+        contentIds: ALIGNMENT.curriculumSelection.contentIds,
+        rationale: ALIGNMENT.curriculumSelection.rationale,
+      },
+      backwardDesign: ALIGNMENT.backwardDesign,
       recommendations: ALIGNMENT.recommendations,
       learningOutcomes: ALIGNMENT.learningOutcomes,
       fourElements: ALIGNMENT.fourElements,
       evidenceTools: ALIGNMENT.evidenceTools,
     });
-    expect(parseCourseAlignment(raw, "gpt-4.1")).toEqual(ALIGNMENT);
+    expect(
+      parseCourseAlignment(raw, "gpt-4.1", CURRICULUM_CANDIDATES),
+    ).toEqual(ALIGNMENT);
 
     expect(() =>
       parseCourseAlignment(
         raw.replace('"C2-P1"', '"C9-P9"'),
         "gpt-4.1",
+        CURRICULUM_CANDIDATES,
       ),
     ).toThrow("不存在的子向度");
 
     const duplicateElements = {
+      curriculumSelection: {
+        performanceIds: ALIGNMENT.curriculumSelection.performanceIds,
+        contentIds: ALIGNMENT.curriculumSelection.contentIds,
+        rationale: ALIGNMENT.curriculumSelection.rationale,
+      },
+      backwardDesign: ALIGNMENT.backwardDesign,
       recommendations: ALIGNMENT.recommendations,
       learningOutcomes: ALIGNMENT.learningOutcomes,
       fourElements: ALIGNMENT.fourElements.map((element, index) =>
@@ -288,13 +344,51 @@ ${JSON.stringify({
       evidenceTools: ALIGNMENT.evidenceTools,
     };
     expect(() =>
-      parseCourseAlignment(JSON.stringify(duplicateElements), "gpt-4.1"),
+      parseCourseAlignment(
+        JSON.stringify(duplicateElements),
+        "gpt-4.1",
+        CURRICULUM_CANDIDATES,
+      ),
     ).toThrow("重複輸出學習設計要素");
+
+    expect(() =>
+      parseCourseAlignment(
+        raw.replace(
+          '"geography-v-content-climate-5"',
+          '"unknown-curriculum-id"',
+        ),
+        "gpt-4.1",
+        CURRICULUM_CANDIDATES,
+      ),
+    ).toThrow("未知或不適用的課綱 ID");
+
+    const duplicatedCurriculumIds = JSON.parse(raw) as Record<string, unknown>;
+    duplicatedCurriculumIds.curriculumSelection = {
+      performanceIds: [
+        "geography-v-performance-inquiry-1",
+        "geography-v-performance-inquiry-1",
+      ],
+      contentIds: ["geography-v-content-climate-5"],
+      rationale: ALIGNMENT.curriculumSelection.rationale,
+    };
+    expect(() =>
+      parseCourseAlignment(
+        JSON.stringify(duplicatedCurriculumIds),
+        "gpt-4.1",
+        CURRICULUM_CANDIDATES,
+      ),
+    ).toThrow("重複 ID");
   });
 
   it("builds a 24-hour handoff and maps it into the assessment form", () => {
     const now = Date.UTC(2026, 6, 17, 4);
-    const handoff = buildCourseIdeationHandoff(INPUT, ALIGNMENT, "C2-P1", now);
+    const handoff = buildCourseIdeationHandoff(
+      INPUT,
+      ALIGNMENT,
+      "C2-P1",
+      "learning-design-test-project",
+      now,
+    );
 
     expect(isValidCourseIdeationHandoff(handoff, now + 23 * 60 * 60 * 1000)).toBe(true);
     expect(isValidCourseIdeationHandoff(handoff, now + 25 * 60 * 60 * 1000)).toBe(false);
@@ -312,15 +406,40 @@ ${JSON.stringify({
 
   it("rejects handoffs with invalid evidence tools or unrecommended selections", () => {
     expect(() =>
-      buildCourseIdeationHandoff(INPUT, ALIGNMENT, "C3-P1"),
+      buildCourseIdeationHandoff(
+        INPUT,
+        ALIGNMENT,
+        "C3-P1",
+        "learning-design-test-project",
+      ),
     ).toThrow("所選子向度不在目前推薦結果中");
 
-    const handoff = buildCourseIdeationHandoff(INPUT, ALIGNMENT, "C2-P1");
+    const handoff = buildCourseIdeationHandoff(
+      INPUT,
+      ALIGNMENT,
+      "C2-P1",
+      "learning-design-test-project",
+    );
     expect(
       isValidCourseIdeationHandoff({
         ...handoff,
         evidenceTools: ["有效", 42],
       }),
     ).toBe(false);
+  });
+
+  it("keeps version 1 handoffs readable for existing drafts", () => {
+    const now = Date.UTC(2026, 6, 17, 4);
+    const legacyHandoff = {
+      version: 1 as const,
+      createdAt: now,
+      input: INPUT,
+      selectedIndicatorId: "C2-P1",
+      evidenceTools: ALIGNMENT.evidenceTools,
+    };
+    expect(isValidCourseIdeationHandoff(legacyHandoff, now)).toBe(true);
+    expect(courseIdeationHandoffToForm(legacyHandoff).activityName).toBe(
+      "全球氣候變遷－極端氣候與校園調適倡議",
+    );
   });
 });

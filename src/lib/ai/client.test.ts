@@ -125,8 +125,65 @@ describe("AI provider requests", () => {
     const body = JSON.parse(String(request?.body));
     expect(body.generationConfig).toEqual({
       temperature: 0.7,
+      maxOutputTokens: 32768,
       responseMimeType: "application/json",
       responseJsonSchema: { type: "object" },
+    });
+  });
+
+  it("retries Gemini structured output in JSON mode when the schema is rejected", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 400,
+              message: "Request contains an invalid argument.",
+              status: "INVALID_ARGUMENT",
+            },
+          }),
+          {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              { content: { parts: [{ text: '{"recovered":true}' }] } },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+
+    await expect(
+      generateWithGemini("prompt", "gemini-2.5-flash", "secret", {
+        structured: {
+          name: "deep_schema",
+          schema: {
+            type: "object",
+            properties: { recovered: { type: "boolean" } },
+            required: ["recovered"],
+          },
+        },
+      }),
+    ).resolves.toBe('{"recovered":true}');
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const firstBody = JSON.parse(
+      String(vi.mocked(fetch).mock.calls[0][1]?.body),
+    );
+    const secondBody = JSON.parse(
+      String(vi.mocked(fetch).mock.calls[1][1]?.body),
+    );
+    expect(firstBody.generationConfig.responseJsonSchema).toBeDefined();
+    expect(secondBody.generationConfig).toEqual({
+      temperature: 0.7,
+      maxOutputTokens: 32768,
+      responseMimeType: "application/json",
     });
   });
 

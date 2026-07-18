@@ -1,4 +1,5 @@
 import type { AssessmentTarget, CourseForm, Indicator } from "@/types";
+import type { AssessmentDesignContext } from "@/types/course-ideation";
 import { ASSESSMENT_DOCUMENT_SCHEMA, buildAssessmentPatchSchema } from "@/lib/assessment-document";
 import { buildStrategyPromptBlock } from "@/lib/assessment-strategies";
 import { buildQuestionContractPromptBlock } from "@/lib/question-contracts";
@@ -32,6 +33,7 @@ export function buildStructuredGeneratePrompt(
   form: CourseForm,
   indicator: Indicator | null,
   pdfExcerpt?: string,
+  designContext?: AssessmentDesignContext | null,
 ): StructuredGenerationPrompt {
   const context = `【課程基本資料】
 - 年級：${form.grade}
@@ -44,6 +46,12 @@ ${indicatorBlock(indicator, form)}`;
   const pdfBlock = pdfExcerpt
     ? `\n【PDF 教案參考內容（只作背景；不得讓課前內容洩漏課程詞彙）】\n${pdfExcerpt.substring(0, 4000)}`
     : "";
+  const designContextBlock = designContext
+    ? `\n【逆向設計專案脈絡】
+${JSON.stringify(designContext)}
+
+評量內容必須對齊上述課綱、遷移目標、學習成果與成功指標。課前診斷、課後遷移及真實任務不得互相取代；本次仍依既有 Schema 產生課前與課後評量。`
+    : "";
   return {
     stable: `${structuredGenerateSystem.trim()}
 
@@ -54,7 +62,7 @@ ${buildQuestionContractPromptBlock()}
 ${JSON.stringify(ASSESSMENT_DOCUMENT_SCHEMA)}`,
     dynamic: `${context}
 
-${buildStrategyPromptBlock(form)}${pdfBlock}
+${buildStrategyPromptBlock(form)}${designContextBlock}${pdfBlock}
 
 請依上述課程資料完成 JSON Schema 的每個欄位。`,
   };
@@ -67,6 +75,7 @@ export function buildStructuredRepairPrompt(
   fullDocument: boolean,
   scenarioContext?: unknown,
   schema?: Record<string, unknown>,
+  designContext?: AssessmentDesignContext | null,
 ): StructuredGenerationPrompt {
   const task = fullDocument
     ? "原始資料無法解析或包含全域結構錯誤，請輸出完整修正版。"
@@ -85,6 +94,8 @@ ${errors.map((error, index) => `${index + 1}. ${error}`).join("\n")}
 
 ${buildStrategyPromptBlock(form)}
 
+${designContext ? `【逆向設計專案脈絡】\n${JSON.stringify(designContext)}` : ""}
+
 【待修資料】
 ${JSON.stringify(source)}
 
@@ -100,10 +111,11 @@ export function buildStructuredRecoveryPrompt(
   raw: string,
   parseError: string,
   form: CourseForm,
+  designContext?: AssessmentDesignContext | null,
 ): StructuredGenerationPrompt {
   return {
     stable: `${structuredGenerateSystem.trim()}\n\n${buildQuestionContractPromptBlock()}\n\n【JSON 修復模式】\n請保持原有教學內容品質，輸出完整且符合 JSON Schema 的評量資料。\n\n【本次輸出 JSON Schema】\n${JSON.stringify(ASSESSMENT_DOCUMENT_SCHEMA)}`,
-    dynamic: `【解析錯誤】\n${parseError}\n\n【課程資料】\n年級：${form.grade}\n科目：${form.subject}\n活動：${form.activityName}\n生活關鍵字：${form.lifeKeywords}\n工具：${form.tools}\n\n${buildStrategyPromptBlock(form)}\n\n【原始回應】\n${raw.slice(0, 30000)}`,
+    dynamic: `【解析錯誤】\n${parseError}\n\n【課程資料】\n年級：${form.grade}\n科目：${form.subject}\n活動：${form.activityName}\n生活關鍵字：${form.lifeKeywords}\n工具：${form.tools}\n\n${buildStrategyPromptBlock(form)}\n\n${designContext ? `【逆向設計專案脈絡】\n${JSON.stringify(designContext)}\n\n` : ""}【原始回應】\n${raw.slice(0, 30000)}`,
   };
 }
 
