@@ -32,7 +32,10 @@ export default defineConfig({
           if (chunkInfo.name === "index") return "assets/chunks/shared.js";
           return "assets/chunks/[name].js";
         },
-        assetFileNames: "assets/[name][extname]",
+        assetFileNames: (assetInfo) =>
+          assetInfo.name?.endsWith(".css")
+            ? "assets/index.css"
+            : "assets/[name][extname]",
       },
     },
   },

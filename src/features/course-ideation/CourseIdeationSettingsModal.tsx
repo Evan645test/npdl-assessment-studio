@@ -2,9 +2,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Eye, EyeOff, Settings2, X } from "lucide-react";
 import { useState } from "react";
 import {
-  COURSE_IDEATION_MODEL_OPTIONS,
   getCourseIdeationProvider,
 } from "@/lib/course-ideation-ai";
+import { SHARED_AI_MODEL_OPTIONS } from "@/hooks/useSharedAiSettings";
 
 interface CourseIdeationSettingsModalProps {
   open: boolean;
@@ -136,10 +136,10 @@ export function CourseIdeationSettingsModal({
             <div className="flex items-center justify-between border-b border-[#dfe8e2] p-5">
               <div>
                 <h2 id="course-ideation-settings-title" className="text-lg font-black">
-                  課程發想 AI 設定
+                  NPDL Studio AI 設定
                 </h2>
                 <p className="mt-1 text-xs font-bold text-zinc-500">
-                  課程發想一律使用你自己的 API Key
+                  課程設計與評量設計共用同一模型與 API Key
                 </p>
               </div>
               <button
@@ -160,7 +160,7 @@ export function CourseIdeationSettingsModal({
                   className="min-h-12 w-full rounded-xl border border-[#dfe8e2] bg-white px-3 text-sm font-bold text-zinc-800 outline-none focus:border-[#2f7d68] focus:ring-2 focus:ring-emerald-100"
                 >
                   <optgroup label="Gemini（Google）">
-                    {COURSE_IDEATION_MODEL_OPTIONS.filter(
+                    {SHARED_AI_MODEL_OPTIONS.filter(
                       (option) => option.group === "gemini",
                     ).map((option) => (
                       <option key={option.value} value={option.value}>
@@ -169,7 +169,7 @@ export function CourseIdeationSettingsModal({
                     ))}
                   </optgroup>
                   <optgroup label="ChatGPT（OpenAI）">
-                    {COURSE_IDEATION_MODEL_OPTIONS.filter(
+                    {SHARED_AI_MODEL_OPTIONS.filter(
                       (option) => option.group === "openai",
                     ).map((option) => (
                       <option key={option.value} value={option.value}>
@@ -178,7 +178,7 @@ export function CourseIdeationSettingsModal({
                     ))}
                   </optgroup>
                   <optgroup label="Grok（xAI）">
-                    {COURSE_IDEATION_MODEL_OPTIONS.filter(
+                    {SHARED_AI_MODEL_OPTIONS.filter(
                       (option) => option.group === "xai",
                     ).map((option) => (
                       <option key={option.value} value={option.value}>

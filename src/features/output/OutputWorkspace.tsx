@@ -43,7 +43,8 @@ interface OutputWorkspaceProps {
   validation: ValidationResult | null;
   onRefine?: (target: RefineTarget) => void;
   onSaveQuestion: (question: SavedQuestion) => void;
-  onOpenSettings: () => void;
+  onOpenAiSettings: () => void;
+  onOpenGoogleFormsSettings: () => void;
 }
 
 const TAB_LABELS = ["課程敘述語", "課前診斷", "課後遷移"] as const;
@@ -135,14 +136,14 @@ function EmptyState({
   indicator,
   isCustom,
   customText,
-  onOpenSettings,
+  onOpenAiSettings,
 }: {
   hasIndicator: boolean;
   hasAnyKey: boolean;
   indicator: Indicator | null;
   isCustom?: boolean;
   customText?: string;
-  onOpenSettings: () => void;
+  onOpenAiSettings: () => void;
 }) {
   if (!hasAnyKey) {
     return (
@@ -151,7 +152,7 @@ function EmptyState({
         <p className="mt-2 text-sm font-medium text-zinc-600">{t.noApiKey}</p>
         <button
           type="button"
-          onClick={onOpenSettings}
+          onClick={onOpenAiSettings}
           className="mt-6 rounded-xl bg-[#173f36] px-6 py-3 text-sm font-black text-white shadow-lg shadow-emerald-950/15 hover:bg-[#0f312a]"
         >
           {t.openSettings}
@@ -217,7 +218,8 @@ export function OutputWorkspace({
   validation,
   onRefine,
   onSaveQuestion,
-  onOpenSettings,
+  onOpenAiSettings,
+  onOpenGoogleFormsSettings,
 }: OutputWorkspaceProps) {
   const [formsExporting, setFormsExporting] = useState(false);
   const [formsExportStatus, setFormsExportStatus] = useState<string | null>(null);
@@ -276,7 +278,7 @@ export function OutputWorkspace({
       return;
     }
     if (googleClientIdIssue) {
-      onOpenSettings();
+      onOpenGoogleFormsSettings();
       return;
     }
     setFormsExporting(true);
@@ -338,7 +340,7 @@ export function OutputWorkspace({
             indicator={indicator}
             isCustom={form.source === "自訂"}
             customText={form.customIndicator}
-            onOpenSettings={onOpenSettings}
+            onOpenAiSettings={onOpenAiSettings}
           />
         ) : (
           <div role="tabpanel">
@@ -363,24 +365,33 @@ export function OutputWorkspace({
                       將課前診斷與課後遷移轉成 Google 表單；Q1–Q3 與 Q4 都依「概念理解、行動應用、生活遷移」排列，方便後續整批判讀。
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleExportGoogleForm}
-                    disabled={formsExporting || Boolean(formsExportIssue)}
-                    title={formsExportIssue ?? googleClientIdIssue ?? undefined}
-                    className="min-h-11 shrink-0 rounded-xl bg-[#173f36] px-4 py-2 text-xs font-black text-white shadow-sm shadow-emerald-950/15 hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {formsExporting
-                      ? "建立中..."
-                      : googleClientIdIssue
-                        ? "設定 Google Forms"
-                      : isGoogleFormExportEntryComplete(formsExportRecord?.pre)
-                        && isGoogleFormExportEntryComplete(formsExportRecord?.post)
-                        ? "兩份問卷已建立"
-                        : formsExportRecord?.pre || formsExportRecord?.post
-                          ? "重試未完成問卷"
-                          : "登入 Google 並建立課前／課後問卷"}
-                  </button>
+                  <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={onOpenGoogleFormsSettings}
+                      className="min-h-11 rounded-xl border border-[#b9ccc2] bg-white px-4 py-2 text-xs font-black text-[#173f36] hover:bg-[#eef4f0]"
+                    >
+                      Google Forms 設定
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportGoogleForm}
+                      disabled={formsExporting || Boolean(formsExportIssue)}
+                      title={formsExportIssue ?? googleClientIdIssue ?? undefined}
+                      className="min-h-11 rounded-xl bg-[#173f36] px-4 py-2 text-xs font-black text-white shadow-sm shadow-emerald-950/15 hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {formsExporting
+                        ? "建立中..."
+                        : googleClientIdIssue
+                          ? "設定 Google Forms"
+                        : isGoogleFormExportEntryComplete(formsExportRecord?.pre)
+                          && isGoogleFormExportEntryComplete(formsExportRecord?.post)
+                          ? "兩份問卷已建立"
+                          : formsExportRecord?.pre || formsExportRecord?.post
+                            ? "重試未完成問卷"
+                            : "登入 Google 並建立課前／課後問卷"}
+                    </button>
+                  </div>
                 </div>
                 {formsExportIssue && (
                   <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
@@ -392,7 +403,7 @@ export function OutputWorkspace({
                     <span>尚未完成 Google Forms OAuth 設定；請先填入 Google OAuth Web Client ID。</span>
                     <button
                       type="button"
-                      onClick={onOpenSettings}
+                      onClick={onOpenGoogleFormsSettings}
                       className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-black hover:bg-amber-100"
                     >
                       開啟設定

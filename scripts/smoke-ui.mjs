@@ -3,6 +3,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
 
 const baseUrl = process.env.NPDL_PREVIEW_URL ?? "http://127.0.0.1:4180/";
+const assessmentUrl = new URL("?workspace=assessment", baseUrl).toString();
 const chromePath =
   process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const outputDir = process.env.NPDL_UI_ARTIFACT_DIR ?? "/tmp/npdl-ui-smoke";
@@ -38,7 +39,7 @@ async function verifyProgressUi(name, viewport, mobile) {
     await route.abort("connectionrefused").catch(() => undefined);
   });
 
-  await page.goto(baseUrl, { waitUntil: "networkidle" });
+  await page.goto(assessmentUrl, { waitUntil: "networkidle" });
   if (mobile) await page.getByRole("button", { name: "開啟輸入面板" }).click();
   await page.getByRole("button", { name: "生成診斷與遷移評量" }).click();
 
@@ -66,6 +67,8 @@ async function verifyGuidedQ4Ui(name, viewport) {
     "哪一份紀錄較能支持目前的結論",
   );
   await page.addInitScript((markdown) => {
+    localStorage.setItem("npdl_selected_model", JSON.stringify("gpt-4.1"));
+    localStorage.setItem("npdl_openai_api_key", "ui-smoke-placeholder");
     localStorage.removeItem("npdl_draft_dismissed");
     localStorage.setItem(
       "npdl_draft_v2",
@@ -142,7 +145,7 @@ async function verifyGuidedQ4Ui(name, viewport) {
     await route.abort();
   });
 
-  await page.goto(baseUrl, { waitUntil: "networkidle" });
+  await page.goto(assessmentUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "恢復", exact: true }).click();
   await page.getByRole("tab", { name: /Q4/ }).click();
   await page.getByText(/任務是判斷哪一份紀錄較能支持目前的結論/).waitFor();
@@ -220,6 +223,8 @@ async function verifyInvalidQ4Ui(name, viewport) {
     "",
   );
   await page.addInitScript((markdown) => {
+    localStorage.setItem("npdl_selected_model", JSON.stringify("gpt-4.1"));
+    localStorage.setItem("npdl_openai_api_key", "ui-smoke-placeholder");
     localStorage.removeItem("npdl_draft_dismissed");
     localStorage.setItem(
       "npdl_draft_v2",
@@ -241,7 +246,7 @@ async function verifyInvalidQ4Ui(name, viewport) {
     );
   }, generatedMarkdown);
 
-  await page.goto(baseUrl, { waitUntil: "networkidle" });
+  await page.goto(assessmentUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "恢復", exact: true }).click();
   await page.getByRole("tab", { name: /Q4/ }).click();
   await page.getByText("Q4 未通過品質檢查，請重新生成評量", { exact: true }).waitFor();
@@ -268,6 +273,8 @@ async function verifyGoogleFormsSetupUi() {
   const page = await context.newPage();
   const generatedMarkdown = await readAssessmentSnapshot();
   await page.addInitScript((markdown) => {
+    localStorage.setItem("npdl_selected_model", JSON.stringify("gpt-4.1"));
+    localStorage.setItem("npdl_openai_api_key", "ui-smoke-placeholder");
     localStorage.removeItem("npdl_draft_dismissed");
     localStorage.removeItem("npdl_google_oauth_client_id");
     localStorage.setItem(
@@ -290,19 +297,17 @@ async function verifyGoogleFormsSetupUi() {
     );
   }, generatedMarkdown);
 
-  await page.goto(baseUrl, { waitUntil: "networkidle" });
+  await page.goto(assessmentUrl, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "恢復", exact: true }).click();
-  const managedExportButton = page.getByRole(
-    "button",
-    { name: "登入 Google 並建立課前／課後問卷", exact: true },
-  );
-  const managedMode = await managedExportButton.count() > 0;
-  if (managedMode) {
-    await page.getByRole("button", { name: "系統設定", exact: true }).click();
-  } else {
-    await page.getByRole("button", { name: "設定 Google Forms", exact: true }).click();
-  }
-  await page.getByRole("dialog", { name: "系統設定" }).waitFor();
+  const managedExportButton = page.getByRole("button", {
+    name: "登入 Google 並建立課前／課後問卷",
+    exact: true,
+  });
+  const managedMode = (await managedExportButton.count()) > 0;
+  await page
+    .getByRole("button", { name: "Google Forms 設定", exact: true })
+    .click();
+  await page.getByRole("dialog", { name: "Google Forms 設定" }).waitFor();
   if (managedMode) {
     await page.getByText(
       "Google Forms 已由系統管理者完成設定。建立問卷時，使用者只需登入 Google 並確認授權。",

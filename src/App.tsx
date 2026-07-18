@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   BookMarked,
   Layers,
-  Lightbulb,
   Menu,
   Monitor,
   PanelLeftClose,
@@ -17,10 +16,12 @@ import { Sidebar } from "@/features/input/Sidebar";
 import { OutputWorkspace } from "@/features/output/OutputWorkspace";
 import { QuestionBankDrawer } from "@/features/question-bank/QuestionBankDrawer";
 import { RefineDrawer } from "@/features/refine/RefineDrawer";
-import { SettingsModal } from "@/features/settings/SettingsModal";
+import { GoogleFormsSettingsModal } from "@/features/settings/GoogleFormsSettingsModal";
 import { useAppState } from "@/hooks/useAppState";
 import { extractPdfText } from "@/lib/pdf";
 import { t } from "@/locales/zh-Hant";
+import type { LearningDesignProjectV1 } from "@/types/course-ideation";
+import type { SharedAiSettings } from "@/types/studio";
 
 const previewWidths: Record<string, string> = {
   desktop: "100%",
@@ -28,9 +29,24 @@ const previewWidths: Record<string, string> = {
   mobile: "390px",
 };
 
-export default function App() {
-  const state = useAppState();
+export interface AssessmentAppProps {
+  embedded?: boolean;
+  active?: boolean;
+  aiSettings?: SharedAiSettings;
+  incomingProject?: LearningDesignProjectV1 | null;
+  onOpenAiSettings?: () => void;
+}
+
+export default function App({
+  embedded = false,
+  active = true,
+  aiSettings,
+  incomingProject = null,
+  onOpenAiSettings = () => undefined,
+}: AssessmentAppProps) {
+  const state = useAppState({ aiSettings, onOpenAiSettings });
   const outputRef = useRef<HTMLDivElement>(null);
+  const importedProjectVersion = useRef<string | null>(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
   const [pdfMeta, setPdfMeta] = useState("");
   const [validationBannerDismissed, setValidationBannerDismissed] = useState(false);
@@ -40,12 +56,6 @@ export default function App() {
       ? state.form.customIndicator
       : state.indicator?.name ?? "";
   const requiresApiKey = !state.hasSelectedModelKey;
-  const requiredKeyProvider =
-    state.selectedModelProvider === "openai"
-      ? "OpenAI"
-      : state.selectedModelProvider === "xai"
-        ? "Grok"
-        : "Gemini";
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 1024);
@@ -54,10 +64,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (requiresApiKey) {
-      state.setSettingsOpen(true);
+    if (active && requiresApiKey) {
+      onOpenAiSettings();
     }
-  }, [requiresApiKey, state.setSettingsOpen]);
+  }, [active, onOpenAiSettings, requiresApiKey]);
+
+  useEffect(() => {
+    if (!incomingProject) return;
+    const version = `${incomingProject.id}:${incomingProject.updatedAt}`;
+    if (importedProjectVersion.current === version) return;
+    importedProjectVersion.current = version;
+    try {
+      state.applyLearningDesignProject(incomingProject);
+    } catch (error) {
+      state.setError(
+        error instanceof Error
+          ? error.message
+          : "課程設計專案無法帶入評量工作區。",
+      );
+    }
+  }, [incomingProject, state.applyLearningDesignProject, state.setError]);
 
   useEffect(() => {
     if (!state.generating && state.generatedMarkdown && outputRef.current) {
@@ -96,7 +122,10 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f3f7f4] text-zinc-900">
+    <div
+      className={`flex ${embedded ? "h-full" : "h-[100dvh]"} w-full flex-col overflow-hidden bg-[#f3f7f4] text-zinc-900`}
+      aria-hidden={!active}
+    >
       <header className="relative z-30 flex shrink-0 items-center justify-between border-b border-[#dfe8e2] bg-white/90 px-4 py-3 shadow-[0_1px_12px_rgba(15,45,38,0.06)] backdrop-blur-md">
         <div className="flex items-center gap-3">
           <button
@@ -107,23 +136,22 @@ export default function App() {
           >
             {state.sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#173f36] text-white shadow-sm shadow-emerald-900/20">
-            <Layers className="h-4 w-4" />
-          </div>
-          <div>
-            <h1 className="text-sm font-black tracking-tight text-zinc-900">{t.appTitle}</h1>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t.appSubtitle}</p>
-          </div>
+          {!embedded && (
+            <>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#173f36] text-white shadow-sm shadow-emerald-900/20">
+                <Layers className="h-4 w-4" />
+              </div>
+              <div>
+                <h1 className="text-sm font-black tracking-tight text-zinc-900">{t.appTitle}</h1>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t.appSubtitle}</p>
+              </div>
+            </>
+          )}
+          {embedded && (
+            <p className="text-sm font-black text-zinc-800">評量設計工作區</p>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href={`${import.meta.env.BASE_URL}course-ideation/`}
-            className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-black text-amber-900 shadow-sm hover:bg-amber-100 sm:px-3"
-            aria-label="開啟課程發想工具"
-          >
-            <Lightbulb className="h-4 w-4" />
-            <span className="hidden sm:inline">課程發想</span>
-          </a>
           <button
             type="button"
             onClick={() => state.setSidebarOpen((v) => !v)}
@@ -163,14 +191,16 @@ export default function App() {
             <BookMarked className="h-4 w-4" />
             {t.savedCount(state.bank.length)}
           </button>
-          <button
-            type="button"
-            onClick={() => state.setSettingsOpen(true)}
-            className="rounded-xl border border-[#dbe7e0] bg-white p-2 text-zinc-600 shadow-sm hover:border-[#b9ccc2] hover:bg-[#f7faf8]"
-            aria-label={t.settings}
-          >
-            <Settings2 className="h-5 w-5" />
-          </button>
+          {!embedded && (
+            <button
+              type="button"
+              onClick={onOpenAiSettings}
+              className="rounded-xl border border-[#dbe7e0] bg-white p-2 text-zinc-600 shadow-sm hover:border-[#b9ccc2] hover:bg-[#f7faf8]"
+              aria-label={t.settings}
+            >
+              <Settings2 className="h-5 w-5" />
+            </button>
+          )}
         </div>
       </header>
 
@@ -369,29 +399,24 @@ export default function App() {
                 }
               } : undefined}
               onSaveQuestion={state.saveQuestion}
-              onOpenSettings={() => state.setSettingsOpen(true)}
+              onOpenAiSettings={onOpenAiSettings}
+              onOpenGoogleFormsSettings={() => state.setSettingsOpen(true)}
             />
           </div>
         </main>
       </div>
 
-      <SettingsModal
-        open={state.settingsOpen || requiresApiKey}
-        geminiKey={state.settings.geminiKey}
-        openaiKey={state.settings.openaiKey}
-        xaiKey={state.settings.xaiKey}
-        googleClientId={state.settings.googleClientId}
-        googleClientIdManaged={state.googleClientIdManaged}
-        model={state.settings.model}
-        testing={state.testingConnection}
-        connectionStatus={state.connectionStatus}
-        required={requiresApiKey}
-        requiredProvider={requiredKeyProvider}
-        onClose={() => {
-          if (!requiresApiKey) state.setSettingsOpen(false);
-        }}
-        onChange={(patch) => state.setSettings((prev) => ({ ...prev, ...patch }))}
-        onTest={state.testConnection}
+      <GoogleFormsSettingsModal
+        open={state.settingsOpen}
+        clientId={state.settings.googleClientId}
+        managed={state.googleClientIdManaged}
+        onClose={() => state.setSettingsOpen(false)}
+        onChange={(googleClientId) =>
+          state.setSettings((previous) => ({
+            ...previous,
+            googleClientId,
+          }))
+        }
       />
 
       <QuestionBankDrawer

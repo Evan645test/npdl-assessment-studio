@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DEFAULT_FORM, DEFAULT_MODEL, MODEL_OPTIONS } from "@/data/constants";
+import { DEFAULT_FORM } from "@/data/constants";
 import { getIndicatorById } from "@/data/indicators";
 import {
   generateAssessment,
@@ -17,6 +17,7 @@ import { normalizeAssessmentQuestionStems } from "@/lib/question-contracts";
 import { normalizeGeneratedQ4Markdown } from "@/lib/q4-guidance";
 import { generateContent, generateIdeationJson, getModelProvider } from "@/lib/ai/client";
 import {
+  buildCourseIdeationHandoff,
   courseIdeationHandoffToForm,
   isValidCourseIdeationHandoff,
 } from "@/lib/course-ideation";
@@ -51,13 +52,18 @@ import type {
   CourseIdeationHandoff,
   LearningDesignProjectV1,
 } from "@/types/course-ideation";
+import {
+  SHARED_AI_DEFAULT_MODEL,
+  SHARED_AI_MODEL_OPTIONS,
+} from "@/hooks/useSharedAiSettings";
+import type { SharedAiSettings } from "@/types/studio";
 
 const MANAGED_GOOGLE_OAUTH_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID?.trim() ?? "";
 
 function readSettings() {
   const model = readJson<string | null>(KEYS.model, null);
-  const allowed = MODEL_OPTIONS.map((m) => m.value);
+  const allowed = SHARED_AI_MODEL_OPTIONS.map((entry) => entry.value);
   return {
     geminiKey: localStorage.getItem(KEYS.geminiKey) ?? "",
     openaiKey: localStorage.getItem(KEYS.openaiKey) ?? "",
@@ -66,11 +72,19 @@ function readSettings() {
       MANAGED_GOOGLE_OAUTH_CLIENT_ID
       || localStorage.getItem(KEYS.googleOAuthClientId)
       || "",
-    model: model && allowed.includes(model as (typeof allowed)[number]) ? model : DEFAULT_MODEL,
+    model:
+      model && allowed.includes(model as (typeof allowed)[number])
+        ? model
+        : SHARED_AI_DEFAULT_MODEL,
   };
 }
 
-export function useAppState() {
+interface UseAppStateOptions {
+  aiSettings?: SharedAiSettings;
+  onOpenAiSettings?: () => void;
+}
+
+export function useAppState(options: UseAppStateOptions = {}) {
   const [form, setForm] = useState<CourseForm>(DEFAULT_FORM);
   const [assessmentDocument, setAssessmentDocument] = useState<AssessmentDocument | null>(null);
   const [assessmentDesignContext, setAssessmentDesignContext] =
@@ -95,7 +109,10 @@ export function useAppState() {
   const [ideationNotice, setIdeationNotice] = useState<string | null>(null);
   const [draftPrompt, setDraftPrompt] = useState<DraftState | LegacyDraftState | null>(null);
   const [draftStorageReady, setDraftStorageReady] = useState(false);
-  const [settings, setSettings] = useState(readSettings);
+  const [localSettings, setSettings] = useState(readSettings);
+  const settings = options.aiSettings
+    ? { ...localSettings, ...options.aiSettings }
+    : localSettings;
   const [bank, setBank] = useState<SavedQuestion[]>(() =>
     readJson<SavedQuestion[]>(KEYS.questionBank, []),
   );
@@ -127,12 +144,14 @@ export function useAppState() {
   const hasAnyKey = hasSelectedModelKey;
 
   useEffect(() => {
-    writeStorage(KEYS.geminiKey, settings.geminiKey);
-    writeStorage(KEYS.openaiKey, settings.openaiKey);
-    writeStorage(KEYS.xaiKey, settings.xaiKey);
-    writeStorage(KEYS.googleOAuthClientId, settings.googleClientId);
-    writeJson(KEYS.model, settings.model);
-  }, [settings]);
+    if (!options.aiSettings) {
+      writeStorage(KEYS.geminiKey, localSettings.geminiKey);
+      writeStorage(KEYS.openaiKey, localSettings.openaiKey);
+      writeStorage(KEYS.xaiKey, localSettings.xaiKey);
+      writeJson(KEYS.model, localSettings.model);
+    }
+    writeStorage(KEYS.googleOAuthClientId, localSettings.googleClientId);
+  }, [localSettings, options.aiSettings]);
 
   useEffect(() => {
     setConnectionStatus(null);
@@ -141,6 +160,47 @@ export function useAppState() {
   useEffect(() => {
     writeJson(KEYS.questionBank, bank);
   }, [bank]);
+
+  const applyLearningDesignProject = useCallback(
+    (project: LearningDesignProjectV1) => {
+      if (!isValidLearningDesignProject(project) || !project.alignment) {
+        throw new Error("課程設計專案不完整，無法帶入評量設計。");
+      }
+      const designContext = buildAssessmentDesignContext(project);
+      if (!designContext) {
+        throw new Error("請先確認學習終點與評量證據，再帶入評量設計。");
+      }
+      const handoff = buildCourseIdeationHandoff(
+        project.input,
+        project.alignment,
+        project.selectedIndicatorId,
+        project.id,
+      );
+      writeJson(KEYS.learningDesignProject, project);
+      setForm(courseIdeationHandoffToForm(handoff));
+      setAssessmentDesignContext(designContext);
+      setAssessmentDocument(null);
+      setGeneratedMarkdown(null);
+      setValidation(null);
+      setRepairStatus(null);
+      setGenerationProgress(null);
+      setActiveModuleTab(0);
+      setMobileStep(2);
+      setRefineTarget(null);
+      setRefineInstruction("");
+      setHighlightKey(null);
+      setPdfExcerpt("");
+      setPdfName("");
+      setIdeation(null);
+      setIdeationNotice(null);
+      setDraftPrompt(null);
+      setHandoffNotice("已帶入課程設計專案，可直接產生對齊的正式評量。");
+      localStorage.removeItem(KEYS.draftDismissed);
+      removeStorage(KEYS.courseIdeationHandoff);
+      setDraftStorageReady(true);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!draftStorageReady) return;
@@ -178,7 +238,8 @@ export function useAppState() {
           isValidLearningDesignProject(project) &&
           project.id === handoff.projectId
         ) {
-          setAssessmentDesignContext(buildAssessmentDesignContext(project));
+          const context = buildAssessmentDesignContext(project);
+          if (context) setAssessmentDesignContext(context);
         }
       }
       setMobileStep(2);
@@ -253,13 +314,13 @@ export function useAppState() {
   const runGenerate = useCallback(async () => {
     if (!canGenerate) return;
     if (!hasSelectedModelKey) {
-      setSettingsOpen(true);
+      options.onOpenAiSettings?.();
       setError(
         selectedModelProvider === "openai"
-          ? "請填寫 OpenAI API Key，或改選免費模型。"
+          ? "請填寫 OpenAI API Key。"
           : selectedModelProvider === "xai"
-            ? "請填寫 Grok API Key，或改選免費模型。"
-            : "請填寫 Gemini API Key，或改選免費模型。",
+            ? "請填寫 Grok API Key。"
+            : "請填寫 Gemini API Key。",
       );
       return;
     }
@@ -341,18 +402,19 @@ export function useAppState() {
     pdfExcerpt,
     settings,
     assessmentDesignContext,
+    options.onOpenAiSettings,
   ]);
 
   const runIdeation = useCallback(async () => {
     if (!form.activityName.trim()) return;
     if (!hasSelectedModelKey) {
-      setSettingsOpen(true);
+      options.onOpenAiSettings?.();
       setIdeationNotice(
         selectedModelProvider === "openai"
-          ? "請填寫 OpenAI API Key，或改選免費模型。"
+          ? "請填寫 OpenAI API Key。"
           : selectedModelProvider === "xai"
-            ? "請填寫 Grok API Key，或改選免費模型。"
-            : "請填寫 Gemini API Key，或改選免費模型。",
+            ? "請填寫 Grok API Key。"
+            : "請填寫 Gemini API Key。",
       );
       return;
     }
@@ -385,7 +447,13 @@ export function useAppState() {
     } finally {
       setIdeating(false);
     }
-  }, [form, hasSelectedModelKey, selectedModelProvider, settings]);
+  }, [
+    form,
+    hasSelectedModelKey,
+    options.onOpenAiSettings,
+    selectedModelProvider,
+    settings,
+  ]);
 
   const runRefine = useCallback(async () => {
     if (!refineTarget || !assessmentDocument || !refineInstruction.trim()) return;
@@ -536,5 +604,6 @@ export function useAppState() {
     selectedModelProvider,
     handoffNotice,
     dismissHandoffNotice: () => setHandoffNotice(null),
+    applyLearningDesignProject,
   };
 }

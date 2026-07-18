@@ -239,6 +239,9 @@ const browser = await chromium.launch({
   args: ["--disable-background-networking"],
 });
 
+const courseWorkspace = (page) =>
+  page.locator('section[aria-label="課程設計工作區"]');
+
 async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   const context = await browser.newContext({ viewport, locale: "zh-TW" });
   const page = await context.newPage();
@@ -248,17 +251,15 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   let forceEvidenceFailure = false;
 
   await page.addInitScript(() => {
-    if (window.location.pathname.includes("/course-ideation/")) {
-      localStorage.clear();
-      localStorage.setItem(
-        "npdl_selected_model",
-        JSON.stringify("puter:gemini-3.1-flash-lite"),
-      );
-      localStorage.setItem("npdl_custom_api_key", "gemini-ui-smoke-placeholder");
-      localStorage.setItem("npdl_openai_api_key", "openai-ui-smoke-placeholder");
-      localStorage.setItem("npdl_xai_api_key", "xai-ui-smoke-placeholder");
-      localStorage.setItem("npdl_draft_dismissed", "1");
-    }
+    localStorage.clear();
+    localStorage.setItem(
+      "npdl_selected_model",
+      JSON.stringify("puter:gemini-3.1-flash-lite"),
+    );
+    localStorage.setItem("npdl_custom_api_key", "gemini-ui-smoke-placeholder");
+    localStorage.setItem("npdl_openai_api_key", "openai-ui-smoke-placeholder");
+    localStorage.setItem("npdl_xai_api_key", "xai-ui-smoke-placeholder");
+    localStorage.setItem("npdl_draft_dismissed", "1");
   });
   await page.route(
     "https://generativelanguage.googleapis.com/**",
@@ -319,23 +320,24 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     },
   );
 
-  await page.goto(new URL("course-ideation/", baseUrl).toString(), {
+  await page.goto(baseUrl, {
     waitUntil: "networkidle",
   });
-  await page.getByRole("heading", { name: "NPDL 課程發想工具" }).waitFor();
+  await page.getByRole("button", { name: "課程設計" }).waitFor();
+  await page.getByText("合併版已移除 Puter 免費模型", { exact: false }).waitFor();
   const migratedModels = await page.evaluate(() => ({
     course: localStorage.getItem("npdl_course_ideation_model_v2"),
     shared: localStorage.getItem("npdl_selected_model"),
   }));
-  if (migratedModels.course !== JSON.stringify("gemini-2.5-flash")) {
-    throw new Error(`${name} 舊 Puter 設定未遷移至課程工具預設模型`);
+  if (migratedModels.course !== null) {
+    throw new Error(`${name} 合併版未移除舊課程專用模型鍵`);
   }
-  if (
-    migratedModels.shared !== JSON.stringify("puter:gemini-3.1-flash-lite")
-  ) {
-    throw new Error(`${name} 課程工具不應改寫 main 的共用模型設定`);
+  if (migratedModels.shared !== JSON.stringify("gemini-2.5-flash")) {
+    throw new Error(`${name} 舊 Puter 設定未遷移至共用 Gemini 模型`);
   }
-  await page.getByRole("button", { name: "AI 分析核心關鍵字" }).click();
+  await courseWorkspace(page)
+    .getByRole("button", { name: "AI 分析核心關鍵字" })
+    .click();
 
   const consent = page.getByRole("dialog", { name: "首次 AI 資料傳送同意" });
   await consent.waitFor();
@@ -346,12 +348,26 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   await consent.getByText("極端氣候與校園調適倡議", { exact: false }).waitFor();
   await consent.getByRole("button", { name: "同意並繼續" }).click();
 
-  await page.getByText(keywordAnalysis.summary, { exact: true }).waitFor();
-  await page.getByRole("heading", { name: "108 課綱校準" }).waitFor();
-  await page.getByRole("button", { name: "進行 108 課綱與 6Cs 校準" }).click();
-  await page.getByRole("heading", { name: "6Cs 子向度推薦" }).waitFor();
-  await page.getByText("地 1c-Ⅴ-1", { exact: true }).first().waitFor();
-  await page.getByText("地 Ba-Ⅴ-5", { exact: true }).first().waitFor();
+  await courseWorkspace(page)
+    .getByText(keywordAnalysis.summary, { exact: true })
+    .waitFor();
+  await courseWorkspace(page)
+    .getByRole("heading", { name: "108 課綱校準" })
+    .waitFor();
+  await courseWorkspace(page)
+    .getByRole("button", { name: "進行 108 課綱與 6Cs 校準" })
+    .click();
+  await courseWorkspace(page)
+    .getByRole("heading", { name: "6Cs 子向度推薦" })
+    .waitFor();
+  await courseWorkspace(page)
+    .getByText("地 1c-Ⅴ-1", { exact: true })
+    .first()
+    .waitFor();
+  await courseWorkspace(page)
+    .getByText("地 Ba-Ⅴ-5", { exact: true })
+    .first()
+    .waitFor();
   await page
     .getByText("能引用資料說明至少兩項氣候風險。", { exact: true })
     .waitFor();
@@ -374,31 +390,48 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   if (await page.getByRole("dialog", { name: "首次 AI 資料傳送同意" }).count()) {
     throw new Error(`${name} 第二次 AI 呼叫不應再次要求瀏覽器同意`);
   }
-  if (await page.getByText("註：關鍵字｜", { exact: false }).count() !== 2) {
+  if (
+    (await courseWorkspace(page)
+      .getByText("註：關鍵字｜", { exact: false })
+      .count()) !== 2
+  ) {
     throw new Error(`${name} 未在兩個推薦項目顯示關鍵字註記`);
   }
 
-  await page.getByText("查看四個學生版學習進程", { exact: true }).click();
+  await courseWorkspace(page)
+    .getByText("查看四個學生版學習進程", { exact: true })
+    .click();
   for (const progression of ["證據有限", "萌芽", "發展", "精熟"]) {
-    await page.getByText(progression, { exact: true }).waitFor();
+    await courseWorkspace(page)
+      .getByText(progression, { exact: true })
+      .waitFor();
   }
   for (const outcome of ["01 知識基礎", "02 素養子向度", "03 四要素整合實踐"]) {
-    await page.getByText(outcome, { exact: true }).waitFor();
+    await courseWorkspace(page).getByText(outcome, { exact: true }).waitFor();
   }
   for (const element of ["學習夥伴關係", "學習環境", "數位利用", "教學實踐"]) {
-    await page.getByRole("heading", { name: element, exact: true }).waitFor();
+    await courseWorkspace(page)
+      .getByRole("heading", { name: element, exact: true })
+      .waitFor();
   }
 
   await page
     .getByRole("button", { name: "確認並鎖定學習終點" })
     .click();
-  await page.getByText("教師已確認", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "AI 建立完整評量證據" }).click();
+  await courseWorkspace(page)
+    .getByText("教師已確認", { exact: true })
+    .waitFor();
+  await courseWorkspace(page)
+    .getByRole("button", { name: "AI 建立完整評量證據" })
+    .click();
   await page
     .getByRole("heading", { name: "真實總結任務" })
     .first()
     .waitFor();
-  await page.getByText("課前 Q1–Q4", { exact: true }).first().waitFor();
+  await courseWorkspace(page)
+    .getByText("課前 Q1–Q4", { exact: true })
+    .first()
+    .waitFor();
   await page
     .getByText("逐項編修評量證據草稿", { exact: true })
     .click();
@@ -411,22 +444,30 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   await page
     .getByRole("button", { name: "確認證據，前往節次藍圖" })
     .click();
-  await page.getByLabel("總節數").fill("3");
-  await page.getByRole("button", { name: "AI 產生單元節次藍圖" }).click();
+  await courseWorkspace(page).getByLabel("總節數").fill("3");
+  await courseWorkspace(page)
+    .getByRole("button", { name: "AI 產生單元節次藍圖" })
+    .click();
   await page
     .getByRole("heading", { name: "3 節完整教案與學習單提示詞已準備" })
     .waitFor();
   await page
     .getByText("查看 3 節藍圖摘要", { exact: true })
     .click();
-  await page.getByText("用資料支持判斷", { exact: true }).waitFor();
+  await courseWorkspace(page)
+    .getByText("用資料支持判斷", { exact: true })
+    .waitFor();
   if (
-    await page.getByRole("button", { name: "預覽", exact: true }).count()
+    await courseWorkspace(page)
+      .getByRole("button", { name: "預覽", exact: true })
+      .count()
   ) {
     throw new Error(`${name} 不應再顯示逐節提示詞按鈕`);
   }
 
-  await page.getByRole("button", { name: "預覽完整提示詞" }).click();
+  await courseWorkspace(page)
+    .getByRole("button", { name: "預覽完整提示詞" })
+    .click();
   const promptDialog = page.getByRole("dialog", {
     name: "Gemini Canvas 提示詞預覽",
   });
@@ -460,7 +501,9 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   }
   await promptDialog.getByRole("button", { name: "關閉提示詞預覽" }).click();
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "下載 Markdown" }).click();
+  await courseWorkspace(page)
+    .getByRole("button", { name: "下載 Markdown" })
+    .click();
   const download = await downloadPromise;
   if (
     !download.suggestedFilename().includes("3節完整教案與學習單") ||
@@ -468,8 +511,12 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   ) {
     throw new Error(`${name} Canvas 提示包未下載為 Markdown`);
   }
-  await page.getByRole("button", { name: "標記外部產生" }).click();
-  await page.getByText("已在外部產生", { exact: true }).waitFor();
+  await courseWorkspace(page)
+    .getByRole("button", { name: "標記外部產生" })
+    .click();
+  await courseWorkspace(page)
+    .getByText("已在外部產生", { exact: true })
+    .waitFor();
 
   if (requestCount !== 5) {
     throw new Error(`${name} AI 請求次數錯誤：${requestCount}`);
@@ -491,8 +538,8 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     throw new Error(`${name} 修復失敗重試次數錯誤：${requestCount}`);
   }
 
-  await page.getByRole("button", { name: "開啟 AI 設定" }).click();
-  const settingsDialog = page.getByRole("dialog", { name: "課程發想 AI 設定" });
+  await page.getByRole("button", { name: "開啟共用 AI 設定" }).click();
+  const settingsDialog = page.getByRole("dialog", { name: "NPDL Studio AI 設定" });
   await settingsDialog.waitFor();
   await settingsDialog
     .getByRole("textbox", { name: "Gemini API Key", exact: true })
@@ -527,10 +574,12 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   });
 
   if (verifyHandoff) {
-    await page.getByRole("button", { name: "帶入評量設計" }).click();
-    await page.waitForURL(baseUrl);
+    await courseWorkspace(page)
+      .getByRole("button", { name: "帶入評量設計" })
+      .click();
+    await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
     await page
-      .getByText("已帶入課程發想結果，請確認推薦子向度後再生成評量。", {
+      .getByText("已帶入課程設計專案，可直接產生對齊的正式評量。", {
         exact: true,
       })
       .waitFor();
@@ -564,7 +613,11 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
         exact: true,
       })
       .waitFor();
-    if (await page.getByRole("heading", { name: "6Cs 子向度推薦" }).count()) {
+    if (
+      await courseWorkspace(page)
+        .getByRole("heading", { name: "6Cs 子向度推薦" })
+        .count()
+    ) {
       throw new Error(`${name} 教師調整課綱後未清除舊 6Cs 結果`);
     }
   }
@@ -579,17 +632,19 @@ async function verifyByokSettings() {
   });
   const page = await context.newPage();
   await page.addInitScript(() => {
-    if (window.location.pathname.includes("/course-ideation/")) {
-      localStorage.clear();
-    }
+    localStorage.clear();
   });
-  await page.goto(new URL("course-ideation/", baseUrl).toString(), {
+  await page.goto(baseUrl, {
     waitUntil: "networkidle",
   });
 
-  await page.getByRole("button", { name: "AI 分析核心關鍵字" }).click();
-  await page.getByText("請先設定 Gemini API Key。", { exact: true }).waitFor();
-  const dialog = page.getByRole("dialog", { name: "課程發想 AI 設定" });
+  await courseWorkspace(page)
+    .getByRole("button", { name: "AI 分析核心關鍵字" })
+    .click();
+  await courseWorkspace(page)
+    .getByText("請先設定 Gemini API Key。", { exact: true })
+    .waitFor();
+  const dialog = page.getByRole("dialog", { name: "NPDL Studio AI 設定" });
   await dialog.waitFor();
   const modelSelect = dialog.getByLabel("模型");
   if (await modelSelect.locator('option[value^="puter:"]').count()) {
@@ -636,18 +691,16 @@ async function verifyMalformedResponseBoundary() {
   });
   const page = await context.newPage();
   await page.addInitScript(() => {
-    if (window.location.pathname.includes("/course-ideation/")) {
-      localStorage.clear();
-      localStorage.setItem(
-        "npdl_course_ideation_model_v2",
-        JSON.stringify("gemini-2.5-flash"),
-      );
-      localStorage.setItem("npdl_custom_api_key", "malformed-test-key");
-      localStorage.setItem(
-        "npdl_course_ideation_ai_consent_v2",
-        JSON.stringify({ version: 2, acceptedAt: Date.now() }),
-      );
-    }
+    localStorage.clear();
+    localStorage.setItem(
+      "npdl_selected_model",
+      JSON.stringify("gemini-2.5-flash"),
+    );
+    localStorage.setItem("npdl_custom_api_key", "malformed-test-key");
+    localStorage.setItem(
+      "npdl_course_ideation_ai_consent_v2",
+      JSON.stringify({ version: 2, acceptedAt: Date.now() }),
+    );
   });
   await page.route(
     "https://generativelanguage.googleapis.com/**",
@@ -682,16 +735,22 @@ async function verifyMalformedResponseBoundary() {
       });
     },
   );
-  await page.goto(new URL("course-ideation/", baseUrl).toString(), {
+  await page.goto(baseUrl, {
     waitUntil: "networkidle",
   });
-  await page.getByRole("button", { name: "AI 分析核心關鍵字" }).click();
+  await courseWorkspace(page)
+    .getByRole("button", { name: "AI 分析核心關鍵字" })
+    .click();
   await page
     .getByText("AI 未產生完整的課程分析，請重試或切換模型。", {
       exact: true,
     })
     .waitFor();
-  if (await page.getByText("themes[0].interpretation", { exact: false }).count()) {
+  if (
+    await courseWorkspace(page)
+      .getByText("themes[0].interpretation", { exact: false })
+      .count()
+  ) {
     throw new Error("課程發想 UI 洩漏內部 schema 欄位路徑");
   }
   await context.close();
@@ -704,15 +763,13 @@ async function verifyCourseExamples() {
   });
   const page = await context.newPage();
   await page.addInitScript(() => {
-    if (window.location.pathname.includes("/course-ideation/")) {
-      localStorage.clear();
-    }
+    localStorage.clear();
   });
-  await page.goto(new URL("course-ideation/", baseUrl).toString(), {
+  await page.goto(baseUrl, {
     waitUntil: "networkidle",
   });
 
-  const exampleSelect = page.getByLabel("載入測試範例");
+  const exampleSelect = courseWorkspace(page).getByLabel("載入測試範例");
   if ((await exampleSelect.locator("option").count()) !== 9) {
     throw new Error("課程發想工具未提供 8 組測試範例");
   }
@@ -737,28 +794,28 @@ async function verifyCourseExamples() {
   }
 
   await exampleSelect.selectOption("chemistry-reaction-rate");
-  if ((await page.getByLabel("年級").inputValue()) !== "高二") {
+  if ((await courseWorkspace(page).getByLabel("年級").inputValue()) !== "高二") {
     throw new Error("化學測試範例未載入正確年級");
   }
-  if ((await page.getByLabel("學科").inputValue()) !== "化學") {
+  if ((await courseWorkspace(page).getByLabel("學科").inputValue()) !== "化學") {
     throw new Error("化學測試範例未載入正確學科");
   }
-  if ((await page.getByLabel("單元名稱").inputValue()) !== "化學反應速率") {
+  if ((await courseWorkspace(page).getByLabel("單元名稱").inputValue()) !== "化學反應速率") {
     throw new Error("化學測試範例未載入正確單元");
   }
-  await page.getByText("變因控制", { exact: true }).waitFor();
+  await courseWorkspace(page).getByText("變因控制", { exact: true }).waitFor();
 
   await exampleSelect.selectOption("mathematics-food-waste-data");
-  if ((await page.getByLabel("學科").inputValue()) !== "數學") {
+  if ((await courseWorkspace(page).getByLabel("學科").inputValue()) !== "數學") {
     throw new Error("數學測試範例未取代前一組學科");
   }
   if (
-    (await page.getByLabel("教學主題").inputValue()) !==
+    (await courseWorkspace(page).getByLabel("教學主題").inputValue()) !==
     "以校園午餐剩食資料提出改善策略"
   ) {
     throw new Error("數學測試範例未載入正確教學主題");
   }
-  await page.getByText("抽樣偏差", { exact: true }).waitFor();
+  await courseWorkspace(page).getByText("抽樣偏差", { exact: true }).waitFor();
 
   const noHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -773,7 +830,131 @@ async function verifyCourseExamples() {
   await context.close();
 }
 
+async function verifyUnifiedWorkspaceNavigation() {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+    locale: "zh-TW",
+  });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "npdl_selected_model",
+      JSON.stringify("gemini-2.5-flash"),
+    );
+    localStorage.setItem("npdl_custom_api_key", "navigation-placeholder");
+    localStorage.setItem("npdl_draft_dismissed", "1");
+  });
+  await page.goto(baseUrl, { waitUntil: "networkidle" });
+  const navigation = page.getByRole("navigation", {
+    name: "NPDL Studio 工作區",
+  });
+  await navigation.getByRole("button", { name: "課程設計" }).waitFor();
+  await courseWorkspace(page).getByLabel("單元名稱").fill("切換狀態保留測試");
+
+  await navigation.getByRole("button", { name: "評量設計" }).click();
+  await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
+  await page.getByText("評量設計工作區", { exact: true }).waitFor();
+  const assessmentValues = await page
+    .locator('section[aria-label="評量設計工作區"] input')
+    .evaluateAll((inputs) => inputs.map((input) => input.value));
+  if (assessmentValues.includes("切換狀態保留測試")) {
+    throw new Error("單純切換工作區不應自動帶入課程資料");
+  }
+  if (
+    await page.evaluate(() =>
+      localStorage.getItem("npdl_course_ideation_handoff_v1"),
+    )
+  ) {
+    throw new Error("單純切換工作區不應建立 handoff");
+  }
+
+  await navigation.getByRole("button", { name: "課程設計" }).click();
+  await page.waitForURL(baseUrl);
+  if (
+    (await courseWorkspace(page).getByLabel("單元名稱").inputValue()) !==
+    "切換狀態保留測試"
+  ) {
+    throw new Error("工作區切換後課程端未提交狀態遺失");
+  }
+  await page.goBack();
+  await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
+  await page.goBack();
+  await page.waitForURL(baseUrl);
+  await context.close();
+
+  const legacyContext = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+    locale: "zh-TW",
+  });
+  const legacyPage = await legacyContext.newPage();
+  await legacyPage.goto(new URL("course-ideation/", baseUrl).toString(), {
+    waitUntil: "networkidle",
+  });
+  await legacyPage.waitForURL(baseUrl);
+  await legacyPage
+    .getByRole("navigation", { name: "NPDL Studio 工作區" })
+    .getByRole("button", { name: "課程設計" })
+    .waitFor();
+  await legacyContext.close();
+}
+
+async function verifyLegacyHandoffUpgrade() {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+    locale: "zh-TW",
+  });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "npdl_selected_model",
+      JSON.stringify("gemini-2.5-flash"),
+    );
+    localStorage.setItem("npdl_custom_api_key", "legacy-handoff-placeholder");
+    localStorage.setItem(
+      "npdl_course_ideation_handoff_v1",
+      JSON.stringify({
+        version: 1,
+        createdAt: Date.now(),
+        input: {
+          grade: "高一",
+          subject: "地理",
+          unitName: "舊版課程交接",
+          teachingTopic: "校園氣候風險",
+          coreKeywords: ["極端氣候", "校園熱島", "數據證據"],
+        },
+        selectedIndicatorId: "C2-P1",
+        evidenceTools: ["資料判讀表", "出口單"],
+      }),
+    );
+  });
+  await page.goto(baseUrl, { waitUntil: "networkidle" });
+  await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
+  await page
+    .getByText("已帶入課程發想結果，請確認推薦子向度後再生成評量。", {
+      exact: true,
+    })
+    .waitFor();
+  if (
+    await page.evaluate(() =>
+      localStorage.getItem("npdl_course_ideation_handoff_v1"),
+    )
+  ) {
+    throw new Error("舊版 handoff 升級後未清除一次性交接資料");
+  }
+  const assessmentValues = await page
+    .locator('section[aria-label="評量設計工作區"] input')
+    .evaluateAll((inputs) => inputs.map((input) => input.value));
+  if (!assessmentValues.includes("舊版課程交接－校園氣候風險")) {
+    throw new Error("舊版 handoff 未帶入合併後的評量工作區");
+  }
+  await context.close();
+}
+
 try {
+  await verifyUnifiedWorkspaceNavigation();
+  await verifyLegacyHandoffUpgrade();
   await verifyByokSettings();
   await verifyMalformedResponseBoundary();
   await verifyCourseExamples();
@@ -788,7 +969,7 @@ try {
     false,
   );
 console.log(
-  `課程發想 UI smoke test 通過：8 組多學科測試範例、108 課綱校準與教師調整、BYOK 模型隔離、三供應商金鑰保存／清除、錯誤資訊邊界、首次同意、四階段 AI、單次結構修復與失敗保留、6Cs 進程、學習終點、完整評量證據、單元節次藍圖、Gemini Canvas 預覽／Markdown 下載、評量交接、桌面與手機版均正常。截圖：${outputDir}`,
+  `合併工作區 UI smoke test 通過：根網址課程預設、分頁／瀏覽器歷史、舊網址轉址、狀態保留、顯式同頁評量交接、8 組多學科範例、108 課綱校準、共用 BYOK 模型與金鑰、Puter 遷移、錯誤資訊邊界、完整評量證據、單元節次藍圖、Gemini Canvas、桌面與手機版均正常。截圖：${outputDir}`,
 );
 } finally {
   await browser.close();

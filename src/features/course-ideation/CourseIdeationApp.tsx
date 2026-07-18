@@ -1,6 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  ArrowLeft,
   ArrowRight,
   ArrowUp,
   ArrowDown,
@@ -60,7 +59,6 @@ import {
 import {
   COURSE_IDEATION_MODEL_OPTIONS,
   getCourseIdeationProvider,
-  resolveCourseIdeationModel,
 } from "@/lib/course-ideation-ai";
 import {
   buildDesiredResults,
@@ -83,10 +81,8 @@ import { toUserErrorMessage } from "@/lib/errors";
 import {
   KEYS,
   readJson,
-  readStorage,
   removeStorage,
   writeJson,
-  writeStorage,
 } from "@/lib/storage";
 import type {
   CourseAlignmentResult,
@@ -106,13 +102,15 @@ import type {
   UnitLessonBlueprint,
   WorkflowState,
 } from "@/types/course-ideation";
-import { CourseIdeationSettingsModal } from "./CourseIdeationSettingsModal";
+import type { SharedAiSettings } from "@/types/studio";
 
-interface AiSettings {
-  geminiKey: string;
-  openaiKey: string;
-  xaiKey: string;
-  model: string;
+export interface CourseIdeationAppProps {
+  embedded?: boolean;
+  active?: boolean;
+  aiSettings: SharedAiSettings;
+  onOpenAiSettings: () => void;
+  onOpenAssessment: (project: LearningDesignProjectV1) => void;
+  onProjectChange?: (project: LearningDesignProjectV1) => void;
 }
 
 interface CourseIdeationDraft {
@@ -148,20 +146,6 @@ const DEFAULT_INPUT = createCourseIdeationExampleInput(
 
 const CONSENT_VERSION = 2;
 const DRAFT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
-
-function readSettings(): AiSettings {
-  const savedCourseModel = readJson<string | null>(
-    KEYS.courseIdeationModel,
-    null,
-  );
-  const legacySharedModel = readJson<string | null>(KEYS.model, null);
-  return {
-    geminiKey: readStorage(KEYS.geminiKey) ?? "",
-    openaiKey: readStorage(KEYS.openaiKey) ?? "",
-    xaiKey: readStorage(KEYS.xaiKey) ?? "",
-    model: resolveCourseIdeationModel(savedCourseModel, legacySharedModel),
-  };
-}
 
 function readDraft(): CourseIdeationDraft | null {
   const draft = readJson<CourseIdeationDraft | null>(
@@ -230,14 +214,6 @@ function providerName(model: string): string {
   if (provider === "openai") return "OpenAI";
   if (provider === "xai") return "Grok（xAI）";
   return "Gemini";
-}
-
-function persistApiKey(key: string, value: string): void {
-  if (value) {
-    writeStorage(key, value);
-  } else {
-    removeStorage(key);
-  }
 }
 
 function promptText(prompt: GenerationPromptParts): string {
@@ -537,7 +513,14 @@ function PromptPreviewModal({
   );
 }
 
-export default function CourseIdeationApp() {
+export default function CourseIdeationApp({
+  embedded = false,
+  active = true,
+  aiSettings: settings,
+  onOpenAiSettings,
+  onOpenAssessment,
+  onProjectChange,
+}: CourseIdeationAppProps) {
   const [initialDraft] = useState(readDraft);
   const [initialStoredProject] = useState(() => {
     const project = readJson<LearningDesignProjectV1 | null>(
@@ -637,10 +620,6 @@ export default function CourseIdeationApp() {
   const [pendingAction, setPendingAction] = useState<AiAction | null>(null);
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentGranted, setConsentGranted] = useState(hasSavedConsent);
-  const [settings, setSettings] = useState<AiSettings>(readSettings);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
-  const [testingConnection, setTestingConnection] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [blueprintError, setBlueprintError] = useState<string | null>(null);
@@ -772,11 +751,8 @@ export default function CourseIdeationApp() {
   ]);
 
   useEffect(() => {
-    persistApiKey(KEYS.geminiKey, settings.geminiKey);
-    persistApiKey(KEYS.openaiKey, settings.openaiKey);
-    persistApiKey(KEYS.xaiKey, settings.xaiKey);
-    writeJson(KEYS.courseIdeationModel, settings.model);
-  }, [settings]);
+    onProjectChange?.(currentProject);
+  }, [currentProject, onProjectChange]);
 
   useEffect(() => {
     const draft: CourseIdeationDraft = {
@@ -931,7 +907,7 @@ export default function CourseIdeationApp() {
   const executeAction = async (action: AiAction) => {
     if (!hasModelAccess) {
       setError(`請先設定 ${providerName(settings.model)} API Key。`);
-      setSettingsOpen(true);
+      onOpenAiSettings();
       return;
     }
     if (action === "analyze" && inputErrors.length > 0) {
@@ -1305,7 +1281,7 @@ export default function CourseIdeationApp() {
     }
     if (!hasModelAccess) {
       setError(`請先設定 ${providerName(settings.model)} API Key。`);
-      setSettingsOpen(true);
+      onOpenAiSettings();
       return;
     }
     if (!consentGranted) {
@@ -1874,29 +1850,6 @@ export default function CourseIdeationApp() {
     setError(null);
   };
 
-  const testConnection = async () => {
-    if (!hasModelAccess) {
-      setConnectionStatus(`請填寫 ${providerName(settings.model)} API Key。`);
-      return;
-    }
-    setTestingConnection(true);
-    setConnectionStatus(null);
-    try {
-      const response = await generateContent(
-        "請只回覆一個字：「好」。",
-        settings.model,
-        settings.geminiKey,
-        settings.openaiKey,
-        settings.xaiKey,
-      );
-      setConnectionStatus(response.includes("好") ? "連線成功" : `已回應：${response.slice(0, 24)}`);
-    } catch (caught) {
-      setConnectionStatus(toUserErrorMessage(caught));
-    } finally {
-      setTestingConnection(false);
-    }
-  };
-
   const handoffToAssessment = () => {
     if (
       !alignment ||
@@ -1911,7 +1864,11 @@ export default function CourseIdeationApp() {
       return;
     }
     try {
-      writeJson(KEYS.learningDesignProject, currentProject);
+      const projectForHandoff: LearningDesignProjectV1 = {
+        ...currentProject,
+        updatedAt: Date.now(),
+      };
+      writeJson(KEYS.learningDesignProject, projectForHandoff);
       const handoff = buildCourseIdeationHandoff(
         input,
         alignment,
@@ -1919,15 +1876,18 @@ export default function CourseIdeationApp() {
         projectId,
       );
       writeJson(KEYS.courseIdeationHandoff, handoff);
-      window.location.assign(import.meta.env.BASE_URL);
+      onOpenAssessment(projectForHandoff);
     } catch (caught) {
       setError(toUserErrorMessage(caught));
     }
   };
 
   return (
-    <div className="h-[100dvh] overflow-y-auto bg-[#f3f7f4] text-zinc-900 custom-scrollbar">
-      <header className="sticky top-0 z-40 border-b border-[#dfe8e2] bg-white/95 px-4 py-3 shadow-[0_1px_12px_rgba(15,45,38,0.06)] backdrop-blur-md">
+    <div
+      className={`${embedded ? "h-full" : "h-[100dvh]"} overflow-y-auto bg-[#f3f7f4] text-zinc-900 custom-scrollbar`}
+      aria-hidden={!active}
+    >
+      {!embedded && <header className="sticky top-0 z-40 border-b border-[#dfe8e2] bg-white/95 px-4 py-3 shadow-[0_1px_12px_rgba(15,45,38,0.06)] backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#173f36] text-white">
@@ -1943,22 +1903,15 @@ export default function CourseIdeationApp() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setSettingsOpen(true)}
+              onClick={onOpenAiSettings}
               className="rounded-xl border border-[#dfe8e2] bg-white p-2 text-zinc-600 hover:bg-[#f7faf8]"
               aria-label="開啟 AI 設定"
             >
               <Settings2 className="h-5 w-5" />
             </button>
-            <a
-              href={import.meta.env.BASE_URL}
-              className="flex items-center gap-2 rounded-xl border border-[#dfe8e2] bg-white px-3 py-2 text-xs font-black text-zinc-700 hover:bg-[#f7faf8]"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span className="hidden sm:inline">評量工作室</span>
-            </a>
           </div>
         </div>
-      </header>
+      </header>}
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:py-8">
         <section className="mb-6 overflow-hidden rounded-2xl bg-[#173f36] p-6 text-white shadow-xl shadow-emerald-950/10 sm:p-8">
@@ -4103,36 +4056,6 @@ export default function CourseIdeationApp() {
           if (promptPreview) {
             void copyPromptText(promptPreview, text, label);
           }
-        }}
-      />
-      <CourseIdeationSettingsModal
-        open={settingsOpen}
-        geminiKey={settings.geminiKey}
-        openaiKey={settings.openaiKey}
-        xaiKey={settings.xaiKey}
-        model={settings.model}
-        testing={testingConnection}
-        connectionStatus={connectionStatus}
-        onClose={() => setSettingsOpen(false)}
-        onChange={(patch) => setSettings((current) => ({ ...current, ...patch }))}
-        onTest={() => void testConnection()}
-        onClearProvider={() => {
-          setConnectionStatus(null);
-          setSettings((current) => {
-            const provider = getCourseIdeationProvider(current.model);
-            if (provider === "openai") return { ...current, openaiKey: "" };
-            if (provider === "xai") return { ...current, xaiKey: "" };
-            return { ...current, geminiKey: "" };
-          });
-        }}
-        onClearAll={() => {
-          setConnectionStatus(null);
-          setSettings((current) => ({
-            ...current,
-            geminiKey: "",
-            openaiKey: "",
-            xaiKey: "",
-          }));
         }}
       />
     </div>
