@@ -5,6 +5,7 @@ import {
   buildKeywordAnalysisPrompt,
   CourseIdeationResponseError,
   courseIdeationHandoffToForm,
+  getCourseAlignmentSchema,
   isValidCourseIdeationHandoff,
   normalizeCoreKeywords,
   parseCourseAlignment,
@@ -49,10 +50,33 @@ const CURRICULUM_CANDIDATES = getCurriculumCandidates(INPUT, ANALYSIS);
 
 const ALIGNMENT: CourseAlignmentResult = {
   curriculumSelection: {
-    performanceIds: ["geography-v-performance-inquiry-1"],
-    contentIds: ["geography-v-content-climate-5"],
+    performanceIds: [
+      "5730-7406-performance-1c-v-1",
+      "5730-7406-performance-3b-v-2",
+    ],
+    contentIds: [
+      "5730-7406-content-ia-v-2",
+      "5730-7406-content-eb-v-5",
+    ],
     rationale: "課程聚焦氣候資料分析與調適方案，對應地理探究表現與氣候內容。",
     mode: "ai_auto",
+  },
+  curriculumRecommendation: {
+    performanceIds: [
+      "5730-7406-performance-1c-v-1",
+      "5730-7406-performance-3b-v-2",
+      "5730-7406-performance-2a-v-2",
+      "5730-7406-performance-1b-v-2",
+      "5730-7406-performance-1a-v-3",
+    ],
+    contentIds: [
+      "5730-7406-content-ia-v-2",
+      "5730-7406-content-eb-v-5",
+      "5730-7406-content-ab-v-3",
+      "5730-7406-content-mb-v-2",
+      "5730-7406-content-aa-v-1",
+    ],
+    rationale: "依氣候議題、資料分析、問題探究與校園倡議的相關性排序。",
   },
   backwardDesign: {
     transferGoals: ["能在新的校園氣候情境中，以資料判讀風險並提出調適方案。"],
@@ -133,6 +157,48 @@ describe("course ideation contracts", () => {
     ).toEqual(["極端氣候", "校園熱島", "數據證據", "小組倡議", "利害關係人"]);
   });
 
+  it("requires five curriculum recommendations and exactly two adopted entries", () => {
+    const autoSchema = getCourseAlignmentSchema("ai_auto");
+    const teacherSchema = getCourseAlignmentSchema("teacher_edited");
+    const autoCurriculum = (
+      (autoSchema.properties as Record<string, unknown>)
+        .curriculumSelection as Record<string, unknown>
+    ).properties as Record<string, Record<string, unknown>>;
+    const teacherCurriculum = (
+      (teacherSchema.properties as Record<string, unknown>)
+        .curriculumSelection as Record<string, unknown>
+    ).properties as Record<string, Record<string, unknown>>;
+    const recommendation = (
+      (autoSchema.properties as Record<string, unknown>)
+        .curriculumRecommendation as Record<string, unknown>
+    ).properties as Record<string, Record<string, unknown>>;
+
+    expect(autoCurriculum.performanceIds).toMatchObject({
+      minItems: 2,
+      maxItems: 2,
+    });
+    expect(autoCurriculum.contentIds).toMatchObject({
+      minItems: 2,
+      maxItems: 2,
+    });
+    expect(teacherCurriculum.performanceIds).toMatchObject({
+      minItems: 2,
+      maxItems: 2,
+    });
+    expect(teacherCurriculum.contentIds).toMatchObject({
+      minItems: 2,
+      maxItems: 2,
+    });
+    expect(recommendation.performanceIds).toMatchObject({
+      minItems: 5,
+      maxItems: 5,
+    });
+    expect(recommendation.contentIds).toMatchObject({
+      minItems: 5,
+      maxItems: 5,
+    });
+  });
+
   it("requires complete course fields and three to five unique keywords", () => {
     expect(validateCourseIdeationInput(INPUT)).toEqual([]);
     expect(
@@ -175,7 +241,13 @@ describe("course ideation contracts", () => {
     expect(alignmentPrompt.dynamic).toContain("紙本或離線替代路徑");
     expect(alignmentPrompt.dynamic).toContain('"id": "C2-P1"');
     expect(alignmentPrompt.dynamic).toContain(
-      '"id": "geography-v-content-climate-5"',
+      '"id": "5730-7406-content-ia-v-2"',
+    );
+    expect(alignmentPrompt.stable).toContain(
+      "各推薦恰好 5 項學習表現與 5 項學習內容",
+    );
+    expect(alignmentPrompt.dynamic).toContain(
+      "各輸出恰好 5 個互不重複",
     );
 
     const chemistryPrompt = buildKeywordAnalysisPrompt({
@@ -311,6 +383,7 @@ ${JSON.stringify({
         contentIds: ALIGNMENT.curriculumSelection.contentIds,
         rationale: ALIGNMENT.curriculumSelection.rationale,
       },
+      curriculumRecommendation: ALIGNMENT.curriculumRecommendation,
       backwardDesign: ALIGNMENT.backwardDesign,
       recommendations: ALIGNMENT.recommendations,
       learningOutcomes: ALIGNMENT.learningOutcomes,
@@ -335,6 +408,7 @@ ${JSON.stringify({
         contentIds: ALIGNMENT.curriculumSelection.contentIds,
         rationale: ALIGNMENT.curriculumSelection.rationale,
       },
+      curriculumRecommendation: ALIGNMENT.curriculumRecommendation,
       backwardDesign: ALIGNMENT.backwardDesign,
       recommendations: ALIGNMENT.recommendations,
       learningOutcomes: ALIGNMENT.learningOutcomes,
@@ -354,7 +428,7 @@ ${JSON.stringify({
     expect(() =>
       parseCourseAlignment(
         raw.replace(
-          '"geography-v-content-climate-5"',
+          '"5730-7406-content-ia-v-2"',
           '"unknown-curriculum-id"',
         ),
         "gpt-4.1",
@@ -365,10 +439,10 @@ ${JSON.stringify({
     const duplicatedCurriculumIds = JSON.parse(raw) as Record<string, unknown>;
     duplicatedCurriculumIds.curriculumSelection = {
       performanceIds: [
-        "geography-v-performance-inquiry-1",
-        "geography-v-performance-inquiry-1",
+        "5730-7406-performance-1c-v-1",
+        "5730-7406-performance-1c-v-1",
       ],
-      contentIds: ["geography-v-content-climate-5"],
+      contentIds: ["5730-7406-content-ia-v-2"],
       rationale: ALIGNMENT.curriculumSelection.rationale,
     };
     expect(() =>
@@ -378,6 +452,35 @@ ${JSON.stringify({
         CURRICULUM_CANDIDATES,
       ),
     ).toThrow("重複 ID");
+
+    const insufficientAutoSelection = JSON.parse(raw) as Record<
+      string,
+      unknown
+    >;
+    insufficientAutoSelection.curriculumSelection = {
+      performanceIds: ["5730-7406-performance-1c-v-1"],
+      contentIds: ["5730-7406-content-ia-v-2"],
+      rationale: ALIGNMENT.curriculumSelection.rationale,
+    };
+    expect(() =>
+      parseCourseAlignment(
+        JSON.stringify(insufficientAutoSelection),
+        "gpt-4.1",
+        CURRICULUM_CANDIDATES,
+      ),
+    ).toThrow("數量不合法");
+    expect(
+      parseCourseAlignment(
+        JSON.stringify(insufficientAutoSelection),
+        "gpt-4.1",
+        CURRICULUM_CANDIDATES,
+        "teacher_edited",
+      ).curriculumSelection,
+    ).toMatchObject({
+      performanceIds: ["5730-7406-performance-1c-v-1"],
+      contentIds: ["5730-7406-content-ia-v-2"],
+      mode: "teacher_edited",
+    });
   });
 
   it("builds a 24-hour handoff and maps it into the assessment form", () => {

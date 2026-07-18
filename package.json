@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "curriculum:build": "node scripts/build-curriculum-snapshot.mjs",
     "test": "vitest run",
     "preview": "vite preview",
     "smoke:deploy": "node scripts/smoke-deploy-assets.mjs",
@@ -16,7 +17,9 @@
   "dependencies": {
     "@heyputer/puter.js": "^2.5.4",
     "framer-motion": "^12.23.12",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.542.0",
+    "mammoth": "^1.10.0",
     "pdfjs-dist": "^5.7.284",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

@@ -74,6 +74,40 @@ export interface CurriculumSelection {
   mode: "ai_auto" | "teacher_edited";
 }
 
+export interface CurriculumRecommendation {
+  performanceIds: string[];
+  contentIds: string[];
+  rationale: string;
+}
+
+export interface LessonReferenceAnalysis {
+  version: 1;
+  inferredCourse: {
+    grade?: string;
+    subject?: string;
+    unitName?: string;
+    teachingTopic?: string;
+    coreKeywords: string[];
+  };
+  learningGoals: string[];
+  reusableActivities: string[];
+  assessmentIdeas: string[];
+  resources: string[];
+  constraints: string[];
+  differentiationSupports: string[];
+  cautions: string[];
+  model: string;
+}
+
+export interface AppliedLessonReference {
+  learningGoals: string[];
+  reusableActivities: string[];
+  assessmentIdeas: string[];
+  resources: string[];
+  constraints: string[];
+  differentiationSupports: string[];
+}
+
 export interface KnowledgeFoundationOutcome extends LearningOutcome {
   successCriteria: string[];
 }
@@ -86,6 +120,7 @@ export interface FourElementPlan {
 
 export interface CourseAlignmentResult {
   curriculumSelection: CurriculumSelection;
+  curriculumRecommendation?: CurriculumRecommendation;
   backwardDesign: {
     transferGoals: string[];
     enduringUnderstandings: string[];
@@ -246,6 +281,9 @@ export interface LearningDesignProjectV1 {
   analysis: KeywordAnalysisResult | null;
   alignment: CourseAlignmentResult | null;
   customCurriculumEntries: CurriculumEntry[];
+  curriculumRecommendation?: CurriculumRecommendation | null;
+  lessonReferenceAnalysis?: LessonReferenceAnalysis | null;
+  appliedLessonReference?: AppliedLessonReference | null;
   selectedIndicatorId: string;
   desiredResults: DesiredResults | null;
   desiredResultsConfirmedAt: number | null;
@@ -289,6 +327,7 @@ export interface AssessmentDesignContext {
   performanceTask: PerformanceTask | null;
   questionMaps: EvidenceQuestionMap[];
   evidenceItems: EvidenceItem[];
+  lessonReference?: AppliedLessonReference | null;
 }
 
 export interface LegacyCourseIdeationHandoff {

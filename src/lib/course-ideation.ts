@@ -8,11 +8,13 @@ import {
 import {
   COURSE_IDEATION_HANDOFF_VERSION,
   FOUR_ELEMENT_NAMES,
+  type AppliedLessonReference,
   type CourseAlignmentResult,
   type CourseIdeationHandoff,
   type CourseIdeationInput,
   type CurrentCourseIdeationHandoff,
   type CurriculumCandidateSet,
+  type CurriculumRecommendation,
   type CurriculumSelection,
   type FourElementName,
   type KeywordAnalysisResult,
@@ -120,6 +122,7 @@ export const COURSE_ALIGNMENT_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
   required: [
     "curriculumSelection",
+    "curriculumRecommendation",
     "backwardDesign",
     "recommendations",
     "learningOutcomes",
@@ -134,14 +137,34 @@ export const COURSE_ALIGNMENT_SCHEMA: Record<string, unknown> = {
       properties: {
         performanceIds: {
           type: "array",
-          minItems: 1,
+          minItems: 2,
           maxItems: 2,
           items: { type: "string" },
         },
         contentIds: {
           type: "array",
-          minItems: 1,
-          maxItems: 3,
+          minItems: 2,
+          maxItems: 2,
+          items: { type: "string" },
+        },
+        rationale: { type: "string" },
+      },
+    },
+    curriculumRecommendation: {
+      type: "object",
+      additionalProperties: false,
+      required: ["performanceIds", "contentIds", "rationale"],
+      properties: {
+        performanceIds: {
+          type: "array",
+          minItems: 5,
+          maxItems: 5,
+          items: { type: "string" },
+        },
+        contentIds: {
+          type: "array",
+          minItems: 5,
+          maxItems: 5,
           items: { type: "string" },
         },
         rationale: { type: "string" },
@@ -233,6 +256,50 @@ export const COURSE_ALIGNMENT_SCHEMA: Record<string, unknown> = {
     },
   },
 };
+
+export function getCourseAlignmentSchema(
+  mode: CurriculumSelection["mode"],
+): Record<string, unknown> {
+  if (mode === "ai_auto") return COURSE_ALIGNMENT_SCHEMA;
+
+  const rootProperties = COURSE_ALIGNMENT_SCHEMA.properties as Record<
+    string,
+    unknown
+  >;
+  const curriculumSelection = rootProperties.curriculumSelection as Record<
+    string,
+    unknown
+  >;
+  const curriculumProperties = curriculumSelection.properties as Record<
+    string,
+    unknown
+  >;
+
+  return {
+    ...COURSE_ALIGNMENT_SCHEMA,
+    properties: {
+      ...rootProperties,
+      curriculumSelection: {
+        ...curriculumSelection,
+        properties: {
+          ...curriculumProperties,
+          performanceIds: {
+            type: "array",
+            minItems: 2,
+            maxItems: 2,
+            items: { type: "string" },
+          },
+          contentIds: {
+            type: "array",
+            minItems: 2,
+            maxItems: 2,
+            items: { type: "string" },
+          },
+        },
+      },
+    },
+  };
+}
 
 function uniqueStrings(values: string[], maximum: number): string[] {
   const output: string[] = [];
@@ -427,14 +494,14 @@ function parseCurriculumSelection(
   const performanceIds = requiredIdArray(
     record.performanceIds,
     "curriculumSelection.performanceIds",
-    1,
+    mode === "ai_auto" ? 2 : 1,
     2,
   );
   const contentIds = requiredIdArray(
     record.contentIds,
     "curriculumSelection.contentIds",
-    1,
-    3,
+    mode === "ai_auto" ? 2 : 1,
+    mode === "ai_auto" ? 2 : 3,
   );
   const validateIds = (
     ids: string[],
@@ -465,6 +532,57 @@ function parseCurriculumSelection(
       "curriculumSelection.rationale",
     ),
     mode,
+  };
+}
+
+function parseCurriculumRecommendation(
+  value: unknown,
+  candidates: CurriculumCandidateSet,
+): CurriculumRecommendation {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    responseError("AI 回應缺少 curriculumRecommendation。");
+  }
+  const record = value as Record<string, unknown>;
+  const performanceIds = requiredIdArray(
+    record.performanceIds,
+    "curriculumRecommendation.performanceIds",
+    5,
+    5,
+  );
+  const contentIds = requiredIdArray(
+    record.contentIds,
+    "curriculumRecommendation.contentIds",
+    5,
+    5,
+  );
+  const validateIds = (
+    ids: string[],
+    allowedIds: Set<string>,
+    field: string,
+  ) => {
+    for (const id of ids) {
+      if (!allowedIds.has(id)) {
+        responseError(`AI 回應的 ${field} 含有未知或不適用的課綱 ID：${id}。`);
+      }
+    }
+  };
+  validateIds(
+    performanceIds,
+    new Set(candidates.performances.map((entry) => entry.id)),
+    "curriculumRecommendation.performanceIds",
+  );
+  validateIds(
+    contentIds,
+    new Set(candidates.contents.map((entry) => entry.id)),
+    "curriculumRecommendation.contentIds",
+  );
+  return {
+    performanceIds,
+    contentIds,
+    rationale: requiredString(
+      record.rationale,
+      "curriculumRecommendation.rationale",
+    ),
   };
 }
 
@@ -577,6 +695,21 @@ export function parseCourseAlignment(
     candidates,
     selectionMode,
   );
+  const curriculumRecommendation = parseCurriculumRecommendation(
+    parsed.curriculumRecommendation,
+    candidates,
+  );
+  if (
+    selectionMode === "ai_auto" &&
+    (!curriculumSelection.performanceIds.every((id) =>
+      curriculumRecommendation.performanceIds.includes(id),
+    ) ||
+      !curriculumSelection.contentIds.every((id) =>
+        curriculumRecommendation.contentIds.includes(id),
+      ))
+  ) {
+    responseError("AI 自動採用的課綱 ID 必須包含在 5 項推薦清單中。");
+  }
   if (
     !parsed.backwardDesign ||
     typeof parsed.backwardDesign !== "object" ||
@@ -665,6 +798,7 @@ export function parseCourseAlignment(
 
   return {
     curriculumSelection,
+    curriculumRecommendation,
     backwardDesign: {
       transferGoals: requiredTextArray(
         backwardDesign.transferGoals,
@@ -744,6 +878,8 @@ export function buildCourseAlignmentPrompt(
   analysis: KeywordAnalysisResult,
   candidates: CurriculumCandidateSet,
   preferredSelection?: CurriculumSelection | null,
+  lessonReference?: AppliedLessonReference | null,
+  preferredRecommendation?: CurriculumRecommendation | null,
 ): GenerationPromptParts {
   const catalog = INDICATORS.map((indicator) => ({
     id: indicator.id,
@@ -753,7 +889,7 @@ export function buildCourseAlignmentPrompt(
   return {
     stable: `你是精通 NPDL（New Pedagogies for Deep Learning）的資深課程設計顧問。
 請從提供的受控 6Cs 子向度目錄中推薦 1–2 個最適合的子向度，不得建立不存在的 ID。
-先從提供的受控 108 課綱候選中採用 1–2 項學習表現與 1–3 項學習內容，再進行 6Cs 對齊。只能輸出候選目錄內的完整 ID，不得建立、改寫或猜測 ID。
+首次自動校準時，必須從提供的受控 108 課綱候選中各推薦恰好 5 項學習表現與 5 項學習內容，並從每組推薦中採用最相關的 2 項，再進行 6Cs 對齊。教師已調整課綱選擇時，則必須原樣保留教師選擇。只能輸出候選目錄內的完整 ID，不得建立、改寫或猜測 ID。
 推薦必須依據學生在任務中要執行的具體認知或實作行為及其可觀察證據；禁止只因主題名稱或關鍵字相似就配對素養。
 學習成果必須形成三層遞進：知識基礎 → 素養子向度 → NPDL 學習設計四要素整合實踐。
 三層不是三個平行活動：後一層必須運用前一層，並逐步提高學生的責任、獨立性與向真實或新情境遷移的程度。
@@ -787,6 +923,12 @@ ${JSON.stringify(
   null,
   2,
 )}
+
+${lessonReference
+  ? `【教師確認採用的既有教案參考】
+${JSON.stringify(lessonReference, null, 2)}
+只能把這些資料視為可沿用構想或現場限制；不得讓它取代受控課綱或自行補出未提供的事實。`
+  : ""}
 
 ${buildTaiwanHighSchoolLabPrompt(input.subject)}
 
@@ -827,18 +969,33 @@ ${JSON.stringify(
   null,
   2,
 )}`
-  : "【課綱採用方式】\n請依課程輸入與階段一分析，自動採用最相關的候選條目。"}
+  : "【課綱採用方式】\n請依課程輸入與階段一分析，各自建議並採用恰好 2 項最相關的學習表現與 2 項最相關的學習內容。"}
+
+${preferredRecommendation
+  ? `【原始 AI 課綱推薦】
+curriculumRecommendation 必須原樣保留下列 ID，不得替換：
+${JSON.stringify(
+  {
+    performanceIds: preferredRecommendation.performanceIds,
+    contentIds: preferredRecommendation.contentIds,
+    rationale: preferredRecommendation.rationale,
+  },
+  null,
+  2,
+)}`
+  : "【課綱推薦方式】\ncurriculumRecommendation 必須各輸出恰好 5 個互不重複的 learningPerformances ID 與 learningContents ID，並依相關性排序；curriculumSelection 的 2 個 ID 必須來自各自的 5 項推薦清單。"}
 
 【可用 6Cs 子向度目錄】
 ${JSON.stringify(catalog, null, 2)}
 
 【輸出要求】
-1. curriculumSelection：採用 1–2 個 learningPerformances ID 與 1–3 個 learningContents ID，rationale 說明所選課綱與單元、關鍵字及預期學生表現的關係。不得抄寫或改寫課綱原文。
-2. backwardDesign：transferGoals 寫學生在離開本單元後能獨立遷移的行動；enduringUnderstandings 寫值得長期保留的關係或原理；essentialQuestions 寫可貫穿單元且不能只用單一事實回答的探究問題。
-3. recommendations：推薦 1–2 個子向度。每項理由必須完整連結「課程任務 → 學生具體認知或實作行為 → 可觀察證據」，不得只做名詞配對。
-4. learningOutcomes：三層各提供一項可觀察、可評量的成果 statement，並提供 evidence。知識基礎須以採用的課綱條目為錨點，另提供 2–4 項 successCriteria；素養子向度回答「學生運用知識能做什麼」；四要素整合實踐回答「學生如何在真實或新情境中整合行動並產出結果」。不得只使用「了解、認識、培養」等無法直接觀察的動詞。
-5. fourElements：四個要素各恰好一次，且共同支撐同一個整合實踐成果，不得生成四個互不相干的裝飾性活動。designMove 要說明教師如何安排該要素、如何與至少另一要素連動，以及如何逐步把學習責任交給學生；studentEvidence 要寫學生實際留下的作品、行動、互動或修訂證據。數位利用必須深化知識建構、協作、創造或分享，不可只列工具名稱，且須有紙本或離線替代路徑。
-6. evidenceTools：列出 2–5 個能帶入後續評量設計的工具或證據形式，必須可由一般高中教師在正常課時內蒐集與判讀，不得預設付費平台或一人一機。`,
+1. curriculumRecommendation：學習表現與學習內容各推薦恰好 5 個受控 ID，依相關性排序；rationale 簡要說明整組推薦依據。
+2. curriculumSelection：${preferredSelection?.mode === "teacher_edited" ? "原樣輸出教師選擇的 learningPerformances ID 與 learningContents ID" : "從各自 5 項推薦中採用恰好 2 個 learningPerformances ID 與恰好 2 個 learningContents ID"}，rationale 說明所選課綱與單元、關鍵字及預期學生表現的關係。不得抄寫或改寫課綱原文。
+3. backwardDesign：transferGoals 寫學生在離開本單元後能獨立遷移的行動；enduringUnderstandings 寫值得長期保留的關係或原理；essentialQuestions 寫可貫穿單元且不能只用單一事實回答的探究問題。
+4. recommendations：推薦 1–2 個子向度。每項理由必須完整連結「課程任務 → 學生具體認知或實作行為 → 可觀察證據」，不得只做名詞配對。
+5. learningOutcomes：三層各提供一項可觀察、可評量的成果 statement，並提供 evidence。知識基礎須以採用的課綱條目為錨點，另提供 2–4 項 successCriteria；素養子向度回答「學生運用知識能做什麼」；四要素整合實踐回答「學生如何在真實或新情境中整合行動並產出結果」。不得只使用「了解、認識、培養」等無法直接觀察的動詞。
+6. fourElements：四個要素各恰好一次，且共同支撐同一個整合實踐成果，不得生成四個互不相干的裝飾性活動。designMove 要說明教師如何安排該要素、如何與至少另一要素連動，以及如何逐步把學習責任交給學生；studentEvidence 要寫學生實際留下的作品、行動、互動或修訂證據。數位利用必須深化知識建構、協作、創造或分享，不可只列工具名稱，且須有紙本或離線替代路徑。
+7. evidenceTools：列出 2–5 個能帶入後續評量設計的工具或證據形式，必須可由一般高中教師在正常課時內蒐集與判讀，不得預設付費平台或一人一機。`,
   };
 }
 

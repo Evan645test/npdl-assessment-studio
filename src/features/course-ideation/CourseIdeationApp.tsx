@@ -10,6 +10,7 @@ import {
   Clipboard,
   Download,
   ExternalLink,
+  FileUp,
   FileText,
   Lightbulb,
   ListChecks,
@@ -42,8 +43,8 @@ import {
   buildCourseIdeationHandoff,
   buildKeywordAnalysisPrompt,
   CourseIdeationResponseError,
-  COURSE_ALIGNMENT_SCHEMA,
   COURSE_IDEATION_RESPONSE_ERROR_MESSAGE,
+  getCourseAlignmentSchema,
   KEYWORD_ANALYSIS_SCHEMA,
   normalizeCoreKeywords,
   parseCourseAlignment,
@@ -55,11 +56,32 @@ import {
   CURRICULUM_SNAPSHOT_VERSION,
   getCurriculumCandidates,
   getCurriculumEntry,
+  getCurriculumOptions,
 } from "@/lib/curriculum";
 import {
   COURSE_IDEATION_MODEL_OPTIONS,
   getCourseIdeationProvider,
 } from "@/lib/course-ideation-ai";
+import {
+  buildCourseCardRevisionPrompt,
+  buildCourseCardRevisionRepairPrompt,
+  courseCardRevisionLabel,
+  getCourseCardValue,
+  getCourseCardRevisionSchema,
+  getCourseCardRevisionStructuredName,
+  parseCourseCardRevisionPatch,
+  replaceCourseCardValue,
+  type CourseCardRevisionTarget,
+  type CourseRevisionParent,
+} from "@/lib/course-ai-revision";
+import {
+  buildLessonReferenceAnalysisPrompt,
+  buildLessonReferenceRepairPrompt,
+  extractLessonReferenceText,
+  LESSON_REFERENCE_ANALYSIS_SCHEMA,
+  parseLessonReferenceAnalysis,
+  type ExtractedLessonReference,
+} from "@/lib/lesson-reference";
 import {
   buildDesiredResults,
   buildEvidencePlanPrompt,
@@ -86,14 +108,17 @@ import {
 } from "@/lib/storage";
 import type {
   CourseAlignmentResult,
+  AppliedLessonReference,
   CourseIdeationInput,
   CurriculumEntry,
   CurriculumKind,
   CurriculumSelection,
+  CurriculumRecommendation,
   DesiredResults,
   EvidencePlanResult,
   EvidenceQuestionMap,
   KeywordAnalysisResult,
+  LessonReferenceAnalysis,
   LearningDesignProjectV1,
   LessonPromptPackage,
   LessonPromptStatus,
@@ -118,7 +143,10 @@ interface CourseIdeationDraft {
   analysis: KeywordAnalysisResult | null;
   alignment: CourseAlignmentResult | null;
   curriculumSelection?: CurriculumSelection | null;
+  curriculumRecommendation?: CurriculumRecommendation | null;
   customCurriculumEntries?: CurriculumEntry[];
+  lessonReferenceAnalysis?: LessonReferenceAnalysis | null;
+  appliedLessonReference?: AppliedLessonReference | null;
   selectedIndicatorId: string;
   projectId?: string;
   projectCreatedAt?: number;
@@ -138,13 +166,13 @@ interface CourseIdeationDraft {
   savedAt: number;
 }
 
-type AiAction = "analyze" | "align" | "evidence" | "blueprint";
+type AiAction = "analyze" | "align" | "evidence" | "blueprint" | "reference";
 
 const DEFAULT_INPUT = createCourseIdeationExampleInput(
   DEFAULT_COURSE_IDEATION_EXAMPLE_ID,
 );
 
-const CONSENT_VERSION = 2;
+const CONSENT_VERSION = 3;
 const DRAFT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 
 function readDraft(): CourseIdeationDraft | null {
@@ -234,6 +262,39 @@ function sameIds(left: string[], right: string[]): boolean {
   );
 }
 
+function revisionParentForTarget(
+  target: CourseCardRevisionTarget,
+  values: {
+    analysis: KeywordAnalysisResult | null;
+    alignment: CourseAlignmentResult | null;
+    evidencePlan: EvidencePlanResult | null;
+    unitBlueprint: UnitBlueprintResult | null;
+  },
+): CourseRevisionParent | null {
+  if (
+    target.kind === "keyword_summary" ||
+    target.kind === "keyword_theme" ||
+    target.kind === "curriculum_signal" ||
+    target.kind === "suggested_keywords"
+  ) {
+    return values.analysis;
+  }
+  if (
+    target.kind === "curriculum_rationale" ||
+    target.kind === "six_c_recommendation" ||
+    target.kind === "desired_result" ||
+    target.kind === "learning_outcome" ||
+    target.kind === "four_element" ||
+    target.kind === "evidence_tools"
+  ) {
+    return values.alignment;
+  }
+  if (target.kind === "unit_arc" || target.kind === "lesson") {
+    return values.unitBlueprint;
+  }
+  return values.evidencePlan;
+}
+
 function CriterionCheckboxes({
   criteria,
   selectedIds,
@@ -268,6 +329,368 @@ function CriterionCheckboxes({
         ))}
       </div>
     </fieldset>
+  );
+}
+
+const COURSE_TYPE_LABELS: Record<CurriculumEntry["courseType"], string> = {
+  required: "必修",
+  elective: "選修",
+  all: "共同／全類型",
+};
+
+const PERFORMANCE_CATEGORY_LABELS: Record<string, Record<string, string>> = {
+  自然科學: {
+    a: "科學態度與科學本質",
+    p: "問題解決與探究實作",
+    t: "思考智能",
+  },
+  數學: {
+    a: "代數",
+    d: "資料與不確定性",
+    f: "函數",
+    g: "坐標幾何",
+    n: "數與量",
+    s: "空間與形狀",
+  },
+  國語文: {
+    "1": "聆聽",
+    "2": "口語表達",
+    "4": "識字與寫字",
+    "5": "閱讀",
+    "6": "寫作",
+  },
+  英語文: {
+    "1": "聆聽",
+    "2": "口說",
+    "3": "閱讀",
+    "4": "寫作",
+    "5": "綜合應用",
+    "6": "學習興趣與態度",
+    "7": "學習方法與策略",
+    "8": "文化理解",
+    "9": "邏輯思考與創造力",
+  },
+};
+
+function curriculumCodeHead(entry: CurriculumEntry): string {
+  return entry.code.split("-")[0]?.trim() || "其他";
+}
+
+function curriculumMajorCode(entry: CurriculumEntry): string {
+  const head = curriculumCodeHead(entry)
+    .replace(/^(地|歷|公)/, "")
+    .replace(/^(P|C|B|E)(?=[A-Z])/, "$1");
+  const scienceSpecific = head.match(/^[PCBE][A-Z]/)?.[0];
+  if (scienceSpecific) return scienceSpecific;
+  return head.match(/^[A-Za-z]/)?.[0]?.toUpperCase() ??
+    head.match(/^\d/)?.[0] ??
+    "其他";
+}
+
+function curriculumOptionCategory(entry: CurriculumEntry): {
+  key: string;
+  label: string;
+} {
+  const courseType = COURSE_TYPE_LABELS[entry.courseType];
+  if (entry.kind === "learning_performance") {
+    const head = curriculumCodeHead(entry).replace(/^(地|歷|公)/, "");
+    const family = head.charAt(0).toLowerCase();
+    const mapped =
+      PERFORMANCE_CATEGORY_LABELS[entry.subject]?.[family] ??
+      (["地理", "歷史", "公民與社會"].includes(entry.subject)
+        ? {
+            "1": "理解與解釋",
+            "2": "態度與價值",
+            "3": "實作與參與",
+          }[family]
+        : undefined);
+    const category = mapped ?? `${family.toUpperCase() || "其他"} 類表現`;
+    return {
+      key: `${entry.subject}-${entry.courseType}-${category}`,
+      label: `${entry.subject}｜${courseType}｜${category}`,
+    };
+  }
+
+  const majorCode = curriculumMajorCode(entry);
+  const mathLabels: Record<string, string> = {
+    A: "代數",
+    D: "資料與不確定性",
+    F: "函數",
+    G: "坐標幾何",
+    N: "數與量",
+    S: "空間與形狀",
+  };
+  const languageLabels: Record<string, Record<string, string>> = {
+    國語文: {
+      A: "語文知識",
+      B: "文本表述",
+      C: "文化內涵",
+    },
+    英語文: {
+      A: "語言知識",
+      B: "溝通功能",
+      C: "文化與習俗",
+      D: "思考能力",
+    },
+  };
+  const category =
+    (entry.subject === "數學" ? mathLabels[majorCode] : undefined) ??
+    languageLabels[entry.subject]?.[majorCode] ??
+    `${majorCode} 類內容`;
+  return {
+    key: `${entry.subject}-${entry.courseType}-${majorCode}`,
+    label: `${entry.subject}｜${courseType}｜${category}`,
+  };
+}
+
+function CurriculumOptionCard({
+  entry,
+  checked,
+  recommended,
+  disabled,
+  onToggle,
+}: {
+  entry: CurriculumEntry;
+  checked: boolean;
+  recommended: boolean;
+  disabled: boolean;
+  onToggle: (id: string, checked: boolean) => void;
+}) {
+  return (
+    <label
+      className={`flex items-start gap-2 rounded-lg border p-3 ${
+        checked
+          ? "border-[#2f7d68] bg-emerald-50"
+          : disabled
+            ? "cursor-not-allowed border-zinc-200 bg-zinc-50 opacity-50"
+            : "cursor-pointer border-[#dfe8e2] bg-white hover:border-[#9fc2b4]"
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onToggle(entry.id, event.target.checked)}
+        className="mt-1 accent-emerald-800"
+      />
+      <span className="min-w-0 text-[11px] font-medium leading-5 text-zinc-700">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <strong className="text-[#173f36]">{entry.code}</strong>
+          {recommended && (
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[9px] font-black text-violet-800">
+              AI 推薦
+            </span>
+          )}
+          {entry.sourceVersion === "unverified" && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black text-amber-900">
+              教師自訂／未核對
+            </span>
+          )}
+        </span>
+        <span className="mt-1 block">{entry.text}</span>
+        <span className="mt-1 block text-[9px] font-bold text-zinc-500">
+          {entry.subject} · 第 {entry.stage} 階段 ·{" "}
+          {COURSE_TYPE_LABELS[entry.courseType]} · {entry.sourceDocumentTitle}
+        </span>
+      </span>
+    </label>
+  );
+}
+
+function CurriculumMultiSelect({
+  title,
+  entries,
+  selectedIds,
+  recommendedIds,
+  maximum,
+  onToggle,
+}: {
+  title: string;
+  entries: CurriculumEntry[];
+  selectedIds: string[];
+  recommendedIds: string[];
+  maximum: number;
+  onToggle: (id: string, checked: boolean) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = entries.filter((entry) =>
+    `${entry.code} ${entry.text} ${entry.subject}`
+      .toLowerCase()
+      .includes(normalizedSearch),
+  );
+  const recommended = new Set(recommendedIds);
+  const recommendedEntries = recommendedIds
+    .map((id) => entries.find((entry) => entry.id === id))
+    .filter((entry): entry is CurriculumEntry => Boolean(entry));
+  const selectedEntries = selectedIds
+    .map((id) => entries.find((entry) => entry.id === id))
+    .filter((entry): entry is CurriculumEntry => Boolean(entry));
+  const otherEntries = filtered.filter((entry) => !recommended.has(entry.id));
+  const groups = Array.from(
+    otherEntries.reduce((map, entry) => {
+      const category = curriculumOptionCategory(entry);
+      const current = map.get(category.key) ?? {
+        label: category.label,
+        entries: [] as CurriculumEntry[],
+      };
+      current.entries.push(entry);
+      map.set(category.key, current);
+      return map;
+    }, new globalThis.Map<string, { label: string; entries: CurriculumEntry[] }>()),
+  )
+    .map(([key, group]) => ({
+      key,
+      ...group,
+      entries: group.entries.sort((left, right) =>
+        left.code.localeCompare(right.code, "zh-Hant", { numeric: true }),
+      ),
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, "zh-Hant"));
+
+  const renderOption = (entry: CurriculumEntry, isRecommended: boolean) => {
+    const checked = selectedIds.includes(entry.id);
+    const atLimit = selectedIds.length >= maximum && !checked;
+    return (
+      <CurriculumOptionCard
+        key={entry.id}
+        entry={entry}
+        checked={checked}
+        recommended={isRecommended}
+        disabled={atLimit}
+        onToggle={onToggle}
+      />
+    );
+  };
+
+  return (
+    <section className="mt-5 rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-black text-zinc-800">{title}</h3>
+        <span className="text-[10px] font-black text-zinc-500">
+          已選 {selectedIds.length}/{maximum} · 受控清單 {entries.length} 項
+        </span>
+      </div>
+      {selectedEntries.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {selectedEntries.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => onToggle(entry.id, false)}
+              className="flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1.5 text-[10px] font-black text-emerald-950"
+              aria-label={`取消選取 ${entry.code}`}
+            >
+              {entry.code}
+              {recommended.has(entry.id) && (
+                <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[8px] font-black text-violet-800">
+                  AI 推薦
+                </span>
+              )}
+              <X className="h-3 w-3" />
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        className="mt-4 rounded-xl border-2 border-violet-200 bg-violet-50 p-3"
+        aria-label={`AI 推薦${title}`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-black text-violet-950">
+              AI 推薦的{title}
+            </p>
+            <p className="mt-1 text-[10px] font-bold text-violet-700">
+              AI 提供 5 項推薦，請選擇最適合本單元的 2 項；推薦會保留供比較。
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full bg-violet-200 px-2.5 py-1 text-[10px] font-black text-violet-900">
+            {recommendedEntries.length}/5 項
+          </span>
+        </div>
+        {recommendedEntries.length > 0 ? (
+          <div className="mt-3 grid gap-2">
+            {recommendedEntries.map((entry) => renderOption(entry, true))}
+          </div>
+        ) : (
+          <div className="mt-3 rounded-lg border border-dashed border-violet-300 bg-white/70 p-3 text-xs font-bold leading-5 text-violet-800">
+            尚未產生 AI 推薦。請先執行上方的「進行 108
+            課綱與 6Cs 校準」，完成後這裡會固定顯示 5 項推薦供選擇。
+          </div>
+        )}
+      </div>
+      <details className="mt-3 rounded-xl border border-[#cbdad2] bg-white">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-xs font-black text-[#173f36]">
+          <span>
+            其他可選{title}
+            <span className="ml-2 text-[10px] text-zinc-500">
+              {otherEntries.length} 項 · 已分類
+            </span>
+          </span>
+          <ChevronDown className="h-4 w-4" />
+        </summary>
+        <div className="border-t border-[#dfe8e2] p-3">
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="輸入課綱代碼、原文或科目"
+            aria-label={`搜尋${title}`}
+            className="w-full rounded-lg border border-[#dfe8e2] px-3 py-2 text-xs font-medium outline-none focus:border-[#2f7d68] focus:ring-2 focus:ring-emerald-100"
+          />
+          <div className="mt-3 max-h-[32rem] space-y-2 overflow-y-auto pr-1 custom-scrollbar">
+            {groups.map((group) => (
+              <details
+                key={group.key}
+                open={normalizedSearch.length > 0 ? true : undefined}
+                className="rounded-lg border border-[#dfe8e2] bg-[#f7faf8]"
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-[11px] font-black text-[#173f36]">
+                  <span>{group.label}</span>
+                  <span className="flex shrink-0 items-center gap-2 text-[10px] text-zinc-500">
+                    {group.entries.length} 項
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </span>
+                </summary>
+                <div className="grid gap-2 border-t border-[#dfe8e2] p-2">
+                  {group.entries.map((entry) => renderOption(entry, false))}
+                </div>
+              </details>
+            ))}
+            {otherEntries.length === 0 && (
+              <p className="rounded-lg bg-zinc-50 p-3 text-center text-xs font-bold text-zinc-500">
+                {normalizedSearch
+                  ? "其他條目中找不到符合代碼、原文或科目的結果。"
+                  : "目前沒有推薦項目以外的其他條目。"}
+              </p>
+            )}
+          </div>
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function AiRevisionButton({
+  label,
+  onClick,
+  disabled = false,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-[#9fc2b4] bg-white px-3 py-2 text-xs font-black text-[#175247] shadow-sm hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <Sparkles className="h-3.5 w-3.5" />
+      {label}
+    </button>
   );
 }
 
@@ -370,7 +793,7 @@ function ConsentModal({
                 ))}
               </div>
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold leading-6 text-amber-950">
-                將傳送課程欄位、核心關鍵字、後續產生的關鍵字分析，以及校準時列入候選的課綱代碼與原文。API Key、學生姓名與本機檔案不會成為生成提示內容。若日後切換供應商，後續資料會送往新選擇的供應商。
+                將傳送課程欄位、核心關鍵字、課綱候選、後續產生的學習終點、評量證據、節次藍圖、教師輸入的 AI 修改要求；若本次用途是分析既有教案，也會傳送附件擷取文字。API Key、檔名與原始檔案不會成為提示內容。上傳前請先移除學生姓名與其他個資；若日後切換供應商，後續資料會送往新選擇的供應商。
               </div>
               <details className="rounded-xl border border-[#dfe8e2] bg-white">
                 <summary className="cursor-pointer px-4 py-3 text-sm font-black text-zinc-700">
@@ -513,6 +936,184 @@ function PromptPreviewModal({
   );
 }
 
+interface AiRevisionDraft {
+  target: CourseCardRevisionTarget;
+  before: unknown;
+  value: unknown;
+  parent: CourseRevisionParent;
+}
+
+interface AiRevisionModalProps {
+  target: CourseCardRevisionTarget | null;
+  instruction: string;
+  draft: AiRevisionDraft | null;
+  busy: boolean;
+  error: string | null;
+  onInstructionChange: (value: string) => void;
+  onGenerate: () => void;
+  onApply: () => void;
+  onClose: () => void;
+}
+
+function AiRevisionModal({
+  target,
+  instruction,
+  draft,
+  busy,
+  error,
+  onInstructionChange,
+  onGenerate,
+  onApply,
+  onClose,
+}: AiRevisionModalProps) {
+  return (
+    <AnimatePresence>
+      {target && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[75] flex items-center justify-center bg-zinc-950/50 p-4 backdrop-blur-sm"
+        >
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="course-ai-revision-title"
+            initial={{ opacity: 0, scale: 0.97, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 12 }}
+            className="flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[#dfe8e2] bg-white shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[#dfe8e2] p-5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#2f7d68]">
+                  AI 輔助修改
+                </p>
+                <h2
+                  id="course-ai-revision-title"
+                  className="mt-1 text-lg font-black"
+                >
+                  修改{courseCardRevisionLabel(target)}
+                </h2>
+                <p className="mt-1 text-xs font-bold leading-6 text-zinc-500">
+                  AI 只產生這張卡的新版本；確認前不會改動原內容，套用時會重新驗證整個階段。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                aria-label="關閉 AI 輔助修改"
+                className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-4 overflow-y-auto bg-[#f7faf8] p-5 custom-scrollbar">
+              <label className="block">
+                <span className="text-xs font-black text-zinc-700">
+                  希望 AI 如何修改？
+                </span>
+                <textarea
+                  rows={5}
+                  maxLength={1000}
+                  value={instruction}
+                  disabled={busy}
+                  onChange={(event) =>
+                    onInstructionChange(event.target.value)
+                  }
+                  placeholder="例如：保留原本學習目標，但讓任務更符合高一普通班、每組只有一台平板且兩節課內可完成。"
+                  className="mt-2 w-full resize-y rounded-xl border border-[#b9ccc2] bg-white p-3 text-sm font-medium leading-7 outline-none focus:border-[#2f7d68] focus:ring-2 focus:ring-emerald-100 disabled:bg-zinc-100"
+                />
+                <span className="mt-1 block text-right text-[10px] font-black text-zinc-400">
+                  {instruction.length}/1000
+                </span>
+              </label>
+
+              {error && (
+                <p
+                  role="alert"
+                  className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold leading-6 text-red-800"
+                >
+                  {error}
+                </p>
+              )}
+
+              {draft && draft.target === target && (
+                <section className="rounded-xl border border-emerald-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-black text-emerald-950">
+                      AI 修改草稿預覽
+                    </h3>
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black text-emerald-900">
+                      尚未套用
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    {[
+                      ["原內容", draft.before],
+                      ["新內容", draft.value],
+                    ].map(([label, value]) => (
+                      <div key={String(label)} className="overflow-hidden rounded-lg border border-zinc-200">
+                        <p className="border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-black text-zinc-600">
+                          {String(label)}
+                        </p>
+                        <pre className="max-h-72 overflow-auto whitespace-pre-wrap bg-white p-3 text-[11px] font-medium leading-6 text-zinc-700 custom-scrollbar">
+                          {typeof value === "string"
+                            ? value
+                            : JSON.stringify(value, null, 2)}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+
+            <div className="grid gap-3 border-t border-[#dfe8e2] bg-white p-4 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                className="rounded-xl border border-[#dfe8e2] py-3 text-sm font-black text-zinc-700 hover:bg-[#f7faf8] disabled:opacity-40"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={onGenerate}
+                disabled={busy || instruction.trim().length < 4}
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#2f7d68] bg-white py-3 text-sm font-black text-[#175247] hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {busy
+                  ? "AI 正在修改…"
+                  : draft
+                    ? "重新產生草稿"
+                    : "產生修改草稿"}
+              </button>
+              <button
+                type="button"
+                onClick={onApply}
+                disabled={busy || !draft || draft.target !== target}
+                className="flex items-center justify-center gap-2 rounded-xl bg-[#173f36] py-3 text-sm font-black text-white hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Check className="h-4 w-4" />
+                套用這個版本
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export default function CourseIdeationApp({
   embedded = false,
   active = true,
@@ -547,9 +1148,29 @@ export default function CourseIdeationApp({
         initialDraft?.alignment?.curriculumSelection ??
         null,
     );
+  const [curriculumRecommendation, setCurriculumRecommendation] =
+    useState<CurriculumRecommendation | null>(
+      initialDraft?.curriculumRecommendation ?? null,
+    );
   const [customCurriculumEntries, setCustomCurriculumEntries] = useState<
     CurriculumEntry[]
   >(initialDraft?.customCurriculumEntries ?? []);
+  const [lessonReferenceAnalysis, setLessonReferenceAnalysis] =
+    useState<LessonReferenceAnalysis | null>(
+      initialDraft?.lessonReferenceAnalysis ?? null,
+    );
+  const [appliedLessonReference, setAppliedLessonReference] =
+    useState<AppliedLessonReference | null>(
+      initialDraft?.appliedLessonReference ?? null,
+    );
+  const [referenceFileName, setReferenceFileName] = useState("");
+  const [extractedLessonReference, setExtractedLessonReference] =
+    useState<ExtractedLessonReference | null>(null);
+  const [referenceSelection, setReferenceSelection] = useState<Set<string>>(
+    new Set(),
+  );
+  const [referenceError, setReferenceError] = useState<string | null>(null);
+  const [referenceBusy, setReferenceBusy] = useState(false);
   const [customPerformanceDraft, setCustomPerformanceDraft] = useState("");
   const [customContentDraft, setCustomContentDraft] = useState("");
   const [selectedIndicatorId, setSelectedIndicatorId] = useState(
@@ -618,6 +1239,15 @@ export default function CourseIdeationApp({
   const [keywordDraft, setKeywordDraft] = useState("");
   const [busyAction, setBusyAction] = useState<AiAction | null>(null);
   const [pendingAction, setPendingAction] = useState<AiAction | null>(null);
+  const [revisionTarget, setRevisionTarget] =
+    useState<CourseCardRevisionTarget | null>(null);
+  const [pendingRevisionTarget, setPendingRevisionTarget] =
+    useState<CourseCardRevisionTarget | null>(null);
+  const [revisionInstruction, setRevisionInstruction] = useState("");
+  const [revisionDraft, setRevisionDraft] =
+    useState<AiRevisionDraft | null>(null);
+  const [revisionBusy, setRevisionBusy] = useState(false);
+  const [revisionError, setRevisionError] = useState<string | null>(null);
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentGranted, setConsentGranted] = useState(hasSavedConsent);
   const [error, setError] = useState<string | null>(null);
@@ -635,26 +1265,71 @@ export default function CourseIdeationApp({
     )?.label ??
     settings.model;
   const inputErrors = useMemo(() => validateCourseIdeationInput(input), [input]);
+  const curriculumOptions = useMemo(
+    () => getCurriculumOptions(input, customCurriculumEntries),
+    [customCurriculumEntries, input],
+  );
   const curriculumCandidates = useMemo(
-    () => getCurriculumCandidates(input, analysis, customCurriculumEntries),
-    [analysis, customCurriculumEntries, input],
+    () =>
+      getCurriculumCandidates(
+        input,
+        analysis,
+        customCurriculumEntries,
+        {
+          performanceIds: Array.from(
+            new Set([
+              ...(curriculumSelection?.performanceIds ?? []),
+              ...(curriculumRecommendation?.performanceIds ?? []),
+            ]),
+          ),
+          contentIds: Array.from(
+            new Set([
+              ...(curriculumSelection?.contentIds ?? []),
+              ...(curriculumRecommendation?.contentIds ?? []),
+            ]),
+          ),
+        },
+      ),
+    [
+      analysis,
+      curriculumRecommendation,
+      curriculumSelection,
+      customCurriculumEntries,
+      input,
+    ],
   );
-  const candidatePerformanceIds = new Set(
-    curriculumCandidates.performances.map((entry) => entry.id),
+  const optionPerformanceIds = new Set(
+    curriculumOptions.performances.map((entry) => entry.id),
   );
-  const candidateContentIds = new Set(
-    curriculumCandidates.contents.map((entry) => entry.id),
+  const optionContentIds = new Set(
+    curriculumOptions.contents.map((entry) => entry.id),
   );
   const curriculumSelectionComplete =
     curriculumSelection !== null &&
-    curriculumSelection.performanceIds.length >= 1 &&
-    curriculumSelection.performanceIds.length <= 2 &&
-    curriculumSelection.contentIds.length >= 1 &&
-    curriculumSelection.contentIds.length <= 3 &&
+    curriculumSelection.performanceIds.length === 2 &&
+    curriculumSelection.contentIds.length === 2 &&
     curriculumSelection.performanceIds.every((id) =>
-      candidatePerformanceIds.has(id),
+      optionPerformanceIds.has(id),
     ) &&
-    curriculumSelection.contentIds.every((id) => candidateContentIds.has(id));
+    curriculumSelection.contentIds.every((id) => optionContentIds.has(id));
+  const curriculumSelectionNeedsRecalibration =
+    curriculumSelection?.mode === "teacher_edited" &&
+    (!alignment ||
+      !sameIds(
+        curriculumSelection.performanceIds,
+        alignment.curriculumSelection.performanceIds,
+      ) ||
+      !sameIds(
+        curriculumSelection.contentIds,
+        alignment.curriculumSelection.contentIds,
+      ));
+  const curriculumCandidatesReady =
+    curriculumSelection?.mode === "teacher_edited" &&
+    curriculumRecommendation
+      ? curriculumCandidates.performances.length >= 1 &&
+        curriculumCandidates.contents.length >= 1
+      : curriculumCandidates.performances.length >= 5 &&
+        curriculumCandidates.contents.length >= 5;
   const selectedIndicator = getIndicatorById(selectedIndicatorId);
   const unitConstraintErrors = useMemo(
     () => validateUnitConstraints(unitConstraints),
@@ -670,6 +1345,11 @@ export default function CourseIdeationApp({
       analysis,
       alignment,
       customCurriculumEntries,
+      curriculumRecommendation,
+      lessonReferenceAnalysis: appliedLessonReference
+        ? lessonReferenceAnalysis
+        : null,
+      appliedLessonReference,
       selectedIndicatorId,
       desiredResults,
       desiredResultsConfirmedAt,
@@ -685,13 +1365,16 @@ export default function CourseIdeationApp({
       alignment,
       alignmentAudit,
       analysis,
+      appliedLessonReference,
       customCurriculumEntries,
+      curriculumRecommendation,
       desiredResults,
       desiredResultsConfirmedAt,
       evidencePlan,
       evidencePlanConfirmedAt,
       input,
       lessonPromptStatus,
+      lessonReferenceAnalysis,
       projectCreatedAt,
       projectId,
       selectedIndicatorId,
@@ -701,6 +1384,37 @@ export default function CourseIdeationApp({
     ],
   );
   const pendingPrompt = useMemo(() => {
+    if (pendingRevisionTarget && revisionTarget === pendingRevisionTarget) {
+      const parent = revisionParentForTarget(pendingRevisionTarget, {
+        analysis,
+        alignment,
+        evidencePlan,
+        unitBlueprint,
+      });
+      const currentCard = parent
+        ? getCourseCardValue(parent, pendingRevisionTarget)
+        : undefined;
+      if (parent && currentCard !== undefined) {
+        try {
+          return buildCourseCardRevisionPrompt({
+            target: pendingRevisionTarget,
+            input,
+            instruction: revisionInstruction,
+            currentCard,
+            parent,
+            desiredResults,
+            evidencePlan,
+            unitConstraints,
+            selectedIndicatorId,
+          });
+        } catch {
+          return null;
+        }
+      }
+    }
+    if (pendingAction === "reference" && extractedLessonReference) {
+      return buildLessonReferenceAnalysisPrompt(extractedLessonReference.text);
+    }
     if (pendingAction === "analyze") return buildKeywordAnalysisPrompt(input);
     if (pendingAction === "align" && analysis) {
       return buildCourseAlignmentPrompt(
@@ -708,6 +1422,8 @@ export default function CourseIdeationApp({
         analysis,
         curriculumCandidates,
         curriculumSelection,
+        appliedLessonReference,
+        curriculumRecommendation,
       );
     }
     if (
@@ -719,6 +1435,7 @@ export default function CourseIdeationApp({
         input,
         alignment,
         selectedIndicatorId,
+        appliedLessonReference,
       );
     }
     if (
@@ -734,19 +1451,27 @@ export default function CourseIdeationApp({
         selectedIndicatorId,
         evidencePlan,
         unitConstraints,
+        appliedLessonReference,
       );
     }
     return null;
   }, [
     analysis,
     alignment,
+    appliedLessonReference,
     curriculumCandidates,
+    curriculumRecommendation,
     curriculumSelection,
     desiredResults,
     evidencePlan,
+    extractedLessonReference,
     input,
     pendingAction,
+    pendingRevisionTarget,
+    revisionInstruction,
+    revisionTarget,
     selectedIndicatorId,
+    unitBlueprint,
     unitConstraints,
   ]);
 
@@ -760,7 +1485,12 @@ export default function CourseIdeationApp({
       analysis,
       alignment,
       curriculumSelection,
+      curriculumRecommendation,
       customCurriculumEntries,
+      lessonReferenceAnalysis: appliedLessonReference
+        ? lessonReferenceAnalysis
+        : null,
+      appliedLessonReference,
       selectedIndicatorId,
       projectId,
       projectCreatedAt,
@@ -779,7 +1509,9 @@ export default function CourseIdeationApp({
   }, [
     alignment,
     analysis,
+    appliedLessonReference,
     curriculumSelection,
+    curriculumRecommendation,
     customCurriculumEntries,
     desiredResults,
     desiredResultsConfirmedAt,
@@ -787,6 +1519,7 @@ export default function CourseIdeationApp({
     evidencePlanConfirmedAt,
     input,
     lessonPromptStatus,
+    lessonReferenceAnalysis,
     alignmentAudit,
     projectCreatedAt,
     projectId,
@@ -816,11 +1549,27 @@ export default function CourseIdeationApp({
     });
   };
 
+  const markDesignStaleAfterCurriculumSelectionChange = () => {
+    setDesiredResultsConfirmedAt(null);
+    setEvidencePlanConfirmedAt(null);
+    setUnitBlueprintConfirmedAt(null);
+    setLessonPromptStatus([]);
+    setPromptPreview(null);
+    setEvidenceError(null);
+    setBlueprintError(null);
+    setAlignmentAudit({
+      desiredResults: desiredResults ? "stale" : "empty",
+      evidencePlan: evidencePlan ? "stale" : "empty",
+      unitBlueprint: unitBlueprint ? "stale" : "empty",
+    });
+  };
+
   const updateInput = (patch: Partial<CourseIdeationInput>) => {
     setInput((current) => ({ ...current, ...patch }));
     setAnalysis(null);
     setAlignment(null);
     setCurriculumSelection(null);
+    setCurriculumRecommendation(null);
     setCustomCurriculumEntries([]);
     setSelectedIndicatorId("");
     invalidateDesignAfterEndpointChange();
@@ -847,7 +1596,7 @@ export default function CourseIdeationApp({
   ) => {
     const field =
       kind === "learning_performance" ? "performanceIds" : "contentIds";
-    const maximum = kind === "learning_performance" ? 2 : 3;
+    const maximum = 2;
     const current = curriculumSelection ?? {
       performanceIds: [],
       contentIds: [],
@@ -864,7 +1613,7 @@ export default function CourseIdeationApp({
       setError(
         kind === "learning_performance"
           ? "學習表現最多選擇 2 項。"
-          : "學習內容最多選擇 3 項。",
+          : "學習內容最多選擇 2 項。",
       );
       return;
     }
@@ -874,9 +1623,7 @@ export default function CourseIdeationApp({
       rationale: "教師已調整課綱選擇，需重新校準後才會產生更新成果。",
       mode: "teacher_edited",
     });
-    setAlignment(null);
-    setSelectedIndicatorId("");
-    invalidateDesignAfterEndpointChange();
+    markDesignStaleAfterCurriculumSelectionChange();
     setError(null);
   };
 
@@ -904,7 +1651,218 @@ export default function CourseIdeationApp({
     }
   };
 
+  const handleLessonReferenceFile = async (file: File | null) => {
+    setReferenceError(null);
+    setLessonReferenceAnalysis(null);
+    setReferenceSelection(new Set());
+    setExtractedLessonReference(null);
+    setReferenceFileName("");
+    if (!file) return;
+    setReferenceBusy(true);
+    try {
+      const extracted = await extractLessonReferenceText(file);
+      setExtractedLessonReference(extracted);
+      setReferenceFileName(file.name);
+    } catch (caught) {
+      setReferenceError(toUserErrorMessage(caught));
+    } finally {
+      setReferenceBusy(false);
+    }
+  };
+
+  const executeLessonReferenceAnalysis = async () => {
+    if (!extractedLessonReference) {
+      setReferenceError("請先選擇可讀取的 PDF、DOCX 或 TXT 教案。");
+      return;
+    }
+    if (!hasModelAccess) {
+      setReferenceError(`請先設定 ${providerName(settings.model)} API Key。`);
+      onOpenAiSettings();
+      return;
+    }
+    setReferenceBusy(true);
+    setReferenceError(null);
+    try {
+      const prompt = buildLessonReferenceAnalysisPrompt(
+        extractedLessonReference.text,
+      );
+      const raw = await generateContent(
+        prompt,
+        settings.model,
+        settings.geminiKey,
+        settings.openaiKey,
+        settings.xaiKey,
+        {
+          structured: {
+            name: "npdl_lesson_reference_analysis",
+            schema: LESSON_REFERENCE_ANALYSIS_SCHEMA,
+          },
+        },
+      );
+      let nextAnalysis: LessonReferenceAnalysis;
+      try {
+        nextAnalysis = parseLessonReferenceAnalysis(raw, settings.model);
+      } catch (caught) {
+        const repair = buildLessonReferenceRepairPrompt(
+          raw,
+          toUserErrorMessage(caught),
+        );
+        const repairedRaw = await generateContent(
+          repair,
+          settings.model,
+          settings.geminiKey,
+          settings.openaiKey,
+          settings.xaiKey,
+          {
+            structured: {
+              name: "npdl_lesson_reference_analysis_repair",
+              schema: LESSON_REFERENCE_ANALYSIS_SCHEMA,
+            },
+          },
+        );
+        nextAnalysis = parseLessonReferenceAnalysis(
+          repairedRaw,
+          settings.model,
+        );
+      }
+      setLessonReferenceAnalysis(nextAnalysis);
+      const initiallySelected = new Set<string>();
+      const inferred = nextAnalysis.inferredCourse;
+      if (inferred.grade) initiallySelected.add("course:grade");
+      if (inferred.subject) initiallySelected.add("course:subject");
+      if (inferred.unitName) initiallySelected.add("course:unitName");
+      if (inferred.teachingTopic) {
+        initiallySelected.add("course:teachingTopic");
+      }
+      if (inferred.coreKeywords.length > 0) {
+        initiallySelected.add("course:coreKeywords");
+      }
+      (
+        [
+          "learningGoals",
+          "reusableActivities",
+          "assessmentIdeas",
+          "resources",
+          "constraints",
+          "differentiationSupports",
+        ] as const
+      ).forEach((field) =>
+        nextAnalysis[field].forEach((_, index) =>
+          initiallySelected.add(`${field}:${index}`),
+        ),
+      );
+      setReferenceSelection(initiallySelected);
+    } catch (caught) {
+      setReferenceError(toUserErrorMessage(caught));
+    } finally {
+      setReferenceBusy(false);
+      setPendingAction(null);
+    }
+  };
+
+  const requestLessonReferenceAnalysis = () => {
+    if (!extractedLessonReference) {
+      setReferenceError("請先選擇可讀取的 PDF、DOCX 或 TXT 教案。");
+      return;
+    }
+    if (!hasModelAccess) {
+      setReferenceError(`請先設定 ${providerName(settings.model)} API Key。`);
+      onOpenAiSettings();
+      return;
+    }
+    if (!consentGranted) {
+      setPendingAction("reference");
+      setConsentOpen(true);
+      return;
+    }
+    void executeLessonReferenceAnalysis();
+  };
+
+  const toggleReferenceSelection = (key: string, checked: boolean) => {
+    setReferenceSelection((current) => {
+      const next = new Set(current);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const applyLessonReferenceSelection = () => {
+    if (!lessonReferenceAnalysis || referenceSelection.size === 0) {
+      setReferenceError("請至少勾選一項要帶入的教案參考。");
+      return;
+    }
+    const inferred = lessonReferenceAnalysis.inferredCourse;
+    const inferredGrade =
+      inferred.grade &&
+      GRADES.includes(inferred.grade as (typeof GRADES)[number])
+        ? inferred.grade
+        : input.grade;
+    const nextInput: CourseIdeationInput = {
+      grade:
+        referenceSelection.has("course:grade") && inferred.grade
+          ? inferredGrade
+          : input.grade,
+      subject:
+        referenceSelection.has("course:subject") && inferred.subject
+          ? inferred.subject
+          : input.subject,
+      unitName:
+        referenceSelection.has("course:unitName") && inferred.unitName
+          ? inferred.unitName
+          : input.unitName,
+      teachingTopic:
+        referenceSelection.has("course:teachingTopic") &&
+        inferred.teachingTopic
+          ? inferred.teachingTopic
+          : input.teachingTopic,
+      coreKeywords:
+        referenceSelection.has("course:coreKeywords") &&
+        inferred.coreKeywords.length > 0
+          ? normalizeCoreKeywords([
+              ...inferred.coreKeywords,
+              ...input.coreKeywords,
+            ])
+          : input.coreKeywords,
+    };
+    const selectedArray = (
+      field:
+        | "learningGoals"
+        | "reusableActivities"
+        | "assessmentIdeas"
+        | "resources"
+        | "constraints"
+        | "differentiationSupports",
+    ) =>
+      lessonReferenceAnalysis[field].filter((_, index) =>
+        referenceSelection.has(`${field}:${index}`),
+      );
+    setAppliedLessonReference({
+      learningGoals: selectedArray("learningGoals"),
+      reusableActivities: selectedArray("reusableActivities"),
+      assessmentIdeas: selectedArray("assessmentIdeas"),
+      resources: selectedArray("resources"),
+      constraints: selectedArray("constraints"),
+      differentiationSupports: selectedArray("differentiationSupports"),
+    });
+    setInput(nextInput);
+    setAnalysis(null);
+    setAlignment(null);
+    setCurriculumSelection(null);
+    setCurriculumRecommendation(null);
+    setCustomCurriculumEntries([]);
+    setExtractedLessonReference(null);
+    setReferenceFileName("");
+    setSelectedIndicatorId("");
+    invalidateDesignAfterEndpointChange();
+    setReferenceError(null);
+  };
+
   const executeAction = async (action: AiAction) => {
+    if (action === "reference") {
+      await executeLessonReferenceAnalysis();
+      return;
+    }
     if (!hasModelAccess) {
       setError(`請先設定 ${providerName(settings.model)} API Key。`);
       onOpenAiSettings();
@@ -920,10 +1878,13 @@ export default function CourseIdeationApp({
     }
     if (
       action === "align" &&
-      (curriculumCandidates.performances.length === 0 ||
-        curriculumCandidates.contents.length === 0)
+      !curriculumCandidatesReady
     ) {
-      setError("找不到可校準的課綱條目，請先加入教師自訂的學習表現與學習內容。");
+      setError(
+        curriculumSelection?.mode === "teacher_edited"
+          ? "找不到可校準的課綱條目，請先加入教師自訂的學習表現與學習內容。"
+          : "AI 初次校準需要至少 5 項學習表現與 5 項學習內容候選；請確認年級、學科或加入教師自訂條目。",
+      );
       return;
     }
     if (
@@ -931,7 +1892,7 @@ export default function CourseIdeationApp({
       curriculumSelection?.mode === "teacher_edited" &&
       !curriculumSelectionComplete
     ) {
-      setError("教師調整後需保留 1–2 項學習表現與 1–3 項學習內容。");
+      setError("請在學習表現與學習內容中各選擇 2 項後再重新校準。");
       return;
     }
     if (
@@ -993,15 +1954,22 @@ export default function CourseIdeationApp({
         setAnalysis(nextAnalysis);
         setAlignment(null);
         setCurriculumSelection(null);
+        setCurriculumRecommendation(null);
         setSelectedIndicatorId("");
         invalidateDesignAfterEndpointChange();
       } else if (action === "align" && analysis) {
+        const alignmentMode =
+          curriculumSelection?.mode === "teacher_edited"
+            ? "teacher_edited"
+            : "ai_auto";
         const raw = await generateContent(
           buildCourseAlignmentPrompt(
             input,
             analysis,
             curriculumCandidates,
             curriculumSelection,
+            appliedLessonReference,
+            curriculumRecommendation,
           ),
           settings.model,
           settings.geminiKey,
@@ -1010,7 +1978,7 @@ export default function CourseIdeationApp({
           {
             structured: {
               name: "npdl_course_alignment",
-              schema: COURSE_ALIGNMENT_SCHEMA,
+              schema: getCourseAlignmentSchema(alignmentMode),
             },
           },
         );
@@ -1018,9 +1986,7 @@ export default function CourseIdeationApp({
           raw,
           settings.model,
           curriculumCandidates,
-          curriculumSelection?.mode === "teacher_edited"
-            ? "teacher_edited"
-            : "ai_auto",
+          alignmentMode,
         );
         if (curriculumSelection?.mode === "teacher_edited") {
           const samePerformances = sameIds(
@@ -1037,8 +2003,27 @@ export default function CourseIdeationApp({
             );
           }
         }
+        if (
+          curriculumRecommendation &&
+          nextAlignment.curriculumRecommendation &&
+          (!sameIds(
+            nextAlignment.curriculumRecommendation.performanceIds,
+            curriculumRecommendation.performanceIds,
+          ) ||
+            !sameIds(
+              nextAlignment.curriculumRecommendation.contentIds,
+              curriculumRecommendation.contentIds,
+            ))
+        ) {
+          throw new CourseIdeationResponseError(
+            "AI 未保留原始的 5 項課綱推薦清單。",
+          );
+        }
         setAlignment(nextAlignment);
         setCurriculumSelection(nextAlignment.curriculumSelection);
+        if (!curriculumRecommendation && nextAlignment.curriculumRecommendation) {
+          setCurriculumRecommendation(nextAlignment.curriculumRecommendation);
+        }
         setSelectedIndicatorId(nextAlignment.recommendations[0].indicatorId);
         setDesiredResults(buildDesiredResults(nextAlignment));
         setDesiredResultsConfirmedAt(null);
@@ -1059,7 +2044,12 @@ export default function CourseIdeationApp({
         selectedIndicatorId
       ) {
         const raw = await generateContent(
-          buildEvidencePlanPrompt(input, alignment, selectedIndicatorId),
+          buildEvidencePlanPrompt(
+            input,
+            alignment,
+            selectedIndicatorId,
+            appliedLessonReference,
+          ),
           settings.model,
           settings.geminiKey,
           settings.openaiKey,
@@ -1130,6 +2120,7 @@ export default function CourseIdeationApp({
             selectedIndicatorId,
             evidencePlan,
             unitConstraints,
+            appliedLessonReference,
           ),
           settings.model,
           settings.geminiKey,
@@ -1231,10 +2222,13 @@ export default function CourseIdeationApp({
     }
     if (
       action === "align" &&
-      (curriculumCandidates.performances.length === 0 ||
-        curriculumCandidates.contents.length === 0)
+      !curriculumCandidatesReady
     ) {
-      setError("找不到可校準的課綱條目，請先加入教師自訂的學習表現與學習內容。");
+      setError(
+        curriculumSelection?.mode === "teacher_edited"
+          ? "找不到可校準的課綱條目，請先加入教師自訂的學習表現與學習內容。"
+          : "AI 初次校準需要至少 5 項學習表現與 5 項學習內容候選；請確認年級、學科或加入教師自訂條目。",
+      );
       return;
     }
     if (
@@ -1242,7 +2236,7 @@ export default function CourseIdeationApp({
       curriculumSelection?.mode === "teacher_edited" &&
       !curriculumSelectionComplete
     ) {
-      setError("教師調整後需保留 1–2 項學習表現與 1–3 項學習內容。");
+      setError("請在學習表現與學習內容中各選擇 2 項後再重新校準。");
       return;
     }
     if (
@@ -1292,8 +2286,417 @@ export default function CourseIdeationApp({
     void executeAction(action);
   };
 
+  const openAiRevision = (target: CourseCardRevisionTarget) => {
+    const parent = revisionParentForTarget(target, {
+      analysis,
+      alignment,
+      evidencePlan,
+      unitBlueprint,
+    });
+    if (!parent || getCourseCardValue(parent, target) === undefined) return;
+    setRevisionTarget(target);
+    setRevisionInstruction("");
+    setRevisionDraft(null);
+    setRevisionError(null);
+  };
+
+  const validateRevisedParent = (
+    target: CourseCardRevisionTarget,
+    parent: CourseRevisionParent,
+    cardValue: unknown,
+  ): CourseRevisionParent => {
+    const currentCard = getCourseCardValue(parent, target);
+    const merged = replaceCourseCardValue(parent, target, cardValue);
+    if (
+      target.kind === "keyword_summary" ||
+      target.kind === "keyword_theme" ||
+      target.kind === "curriculum_signal" ||
+      target.kind === "suggested_keywords"
+    ) {
+      return parseKeywordAnalysis(
+        JSON.stringify(merged),
+        settings.model,
+        input.coreKeywords,
+      );
+    }
+    if (
+      target.kind === "curriculum_rationale" ||
+      target.kind === "six_c_recommendation" ||
+      target.kind === "desired_result" ||
+      target.kind === "learning_outcome" ||
+      target.kind === "four_element" ||
+      target.kind === "evidence_tools"
+    ) {
+      const revised = parseCourseAlignment(
+        JSON.stringify(merged),
+        settings.model,
+        curriculumCandidates,
+        (parent as CourseAlignmentResult).curriculumSelection.mode,
+      );
+      const original = parent as CourseAlignmentResult;
+      if (
+        !sameIds(
+          revised.curriculumSelection.performanceIds,
+          original.curriculumSelection.performanceIds,
+        ) ||
+        !sameIds(
+          revised.curriculumSelection.contentIds,
+          original.curriculumSelection.contentIds,
+        )
+      ) {
+        throw new CourseIdeationResponseError(
+          "單卡修改不得變更受控課綱選擇。",
+        );
+      }
+      if (
+        target.kind === "six_c_recommendation" &&
+        (cardValue as { indicatorId?: unknown }).indicatorId !==
+          (currentCard as { indicatorId?: unknown }).indicatorId
+      ) {
+        throw new CourseIdeationResponseError("單卡修改不得更換 6Cs ID。");
+      }
+      if (
+        target.kind === "four_element" &&
+        (cardValue as { name?: unknown }).name !==
+          (currentCard as { name?: unknown }).name
+      ) {
+        throw new CourseIdeationResponseError("單卡修改不得更換四要素名稱。");
+      }
+      return revised;
+    }
+    if (target.kind === "unit_arc" || target.kind === "lesson") {
+      if (!desiredResults || !evidencePlan) {
+        throw new Error("評量證據資料不完整，無法驗證單元藍圖。");
+      }
+      if (target.kind === "lesson") {
+        const next = cardValue as Record<string, unknown>;
+        const original = currentCard as Record<string, unknown>;
+        for (const field of [
+          "id",
+          "lessonNumber",
+          "minutes",
+          "primaryIndicatorId",
+        ]) {
+          if (next[field] !== original[field]) {
+            throw new CourseIdeationResponseError(
+              `單卡修改不得變更節次的 ${field}。`,
+            );
+          }
+        }
+      }
+      return {
+        ...parseUnitBlueprint(
+          JSON.stringify(merged),
+          settings.model,
+          desiredResults,
+          evidencePlan,
+          unitConstraints,
+          selectedIndicatorId,
+        ),
+        mode: "teacher_edited",
+      };
+    }
+    if (!desiredResults) {
+      throw new Error("學習終點資料不完整，無法驗證評量證據。");
+    }
+    if (
+      target.kind === "question_purpose" &&
+      ((cardValue as { id?: unknown }).id !==
+        (currentCard as { id?: unknown }).id ||
+        (cardValue as { focus?: unknown }).focus !==
+          (currentCard as { focus?: unknown }).focus)
+    ) {
+      throw new CourseIdeationResponseError(
+        "單卡修改不得變更題號或固定能力焦點。",
+      );
+    }
+    if (
+      target.kind === "evidence_item" &&
+      ((cardValue as { id?: unknown }).id !==
+        (currentCard as { id?: unknown }).id ||
+        (cardValue as { type?: unknown }).type !==
+          (currentCard as { type?: unknown }).type)
+    ) {
+      throw new CourseIdeationResponseError(
+        "單卡修改不得變更證據 ID 或證據類型。",
+      );
+    }
+    if (
+      target.kind === "rubric" &&
+      (cardValue as { criterionId?: unknown }).criterionId !==
+        (currentCard as { criterionId?: unknown }).criterionId
+    ) {
+      throw new CourseIdeationResponseError("單卡修改不得更換成功指標 ID。");
+    }
+    return {
+      ...parseEvidencePlan(
+        JSON.stringify(merged),
+        settings.model,
+        desiredResults,
+      ),
+      mode: "teacher_edited",
+    };
+  };
+
+  const executeAiRevision = async (target: CourseCardRevisionTarget) => {
+    const parent = revisionParentForTarget(target, {
+      analysis,
+      alignment,
+      evidencePlan,
+      unitBlueprint,
+    });
+    const currentCard = parent
+      ? getCourseCardValue(parent, target)
+      : undefined;
+    if (!parent || currentCard === undefined) {
+      setRevisionError("目前沒有可修改的內容，請先完成這個階段。");
+      return;
+    }
+    if (!hasModelAccess) {
+      setRevisionError(`請先設定 ${providerName(settings.model)} API Key。`);
+      onOpenAiSettings();
+      return;
+    }
+
+    setRevisionBusy(true);
+    setRevisionError(null);
+    try {
+      const context = {
+        target,
+        input,
+        instruction: revisionInstruction,
+        currentCard,
+        parent,
+        desiredResults,
+        evidencePlan,
+        unitConstraints,
+        selectedIndicatorId,
+      };
+      const prompt = buildCourseCardRevisionPrompt(context);
+      const raw = await generateContent(
+        prompt,
+        settings.model,
+        settings.geminiKey,
+        settings.openaiKey,
+        settings.xaiKey,
+        {
+          structured: {
+            name: getCourseCardRevisionStructuredName(target),
+            schema: getCourseCardRevisionSchema(target),
+          },
+        },
+      );
+      let cardValue: unknown;
+      let revisedParent: CourseRevisionParent;
+      try {
+        cardValue = parseCourseCardRevisionPatch(raw);
+        revisedParent = validateRevisedParent(target, parent, cardValue);
+      } catch (caught) {
+        const repairPrompt = buildCourseCardRevisionRepairPrompt(
+          context,
+          raw,
+          toUserErrorMessage(caught),
+        );
+        const repairedRaw = await generateContent(
+          repairPrompt,
+          settings.model,
+          settings.geminiKey,
+          settings.openaiKey,
+          settings.xaiKey,
+          {
+            structured: {
+              name: `${getCourseCardRevisionStructuredName(target)}_repair`.slice(
+                0,
+                64,
+              ),
+              schema: getCourseCardRevisionSchema(target),
+            },
+          },
+        );
+        cardValue = parseCourseCardRevisionPatch(repairedRaw);
+        revisedParent = validateRevisedParent(target, parent, cardValue);
+      }
+      setRevisionDraft({
+        target,
+        before: currentCard,
+        value: getCourseCardValue(revisedParent, target),
+        parent: revisedParent,
+      });
+    } catch (caught) {
+      setRevisionError(
+        caught instanceof CourseIdeationResponseError
+          ? caught.message
+          : toUserErrorMessage(caught),
+      );
+    } finally {
+      setRevisionBusy(false);
+      setPendingRevisionTarget(null);
+    }
+  };
+
+  const requestAiRevision = () => {
+    if (!revisionTarget) return;
+    const parent = revisionParentForTarget(revisionTarget, {
+      analysis,
+      alignment,
+      evidencePlan,
+      unitBlueprint,
+    });
+    if (!parent) {
+      setRevisionError("目前沒有可修改的內容。");
+      return;
+    }
+    const isEvidenceTarget = !(
+      revisionTarget.kind.startsWith("keyword_") ||
+      revisionTarget.kind === "curriculum_signal" ||
+      revisionTarget.kind === "suggested_keywords" ||
+      revisionTarget.kind === "curriculum_rationale" ||
+      revisionTarget.kind === "six_c_recommendation" ||
+      revisionTarget.kind === "desired_result" ||
+      revisionTarget.kind === "learning_outcome" ||
+      revisionTarget.kind === "four_element" ||
+      revisionTarget.kind === "evidence_tools" ||
+      revisionTarget.kind === "unit_arc" ||
+      revisionTarget.kind === "lesson"
+    );
+    if (
+      isEvidenceTarget &&
+      (!desiredResultsConfirmedAt ||
+        alignmentAudit.desiredResults !== "current")
+    ) {
+      setRevisionError("請先確認目前的學習終點，再用 AI 修改評量證據。");
+      return;
+    }
+    if (
+      (revisionTarget.kind === "unit_arc" ||
+        revisionTarget.kind === "lesson") &&
+      (!evidencePlanConfirmedAt ||
+        alignmentAudit.desiredResults !== "current" ||
+        alignmentAudit.evidencePlan !== "current")
+    ) {
+      setRevisionError("請先確認目前的評量證據，再用 AI 修改單元節次藍圖。");
+      return;
+    }
+    try {
+      const currentCard = getCourseCardValue(parent, revisionTarget);
+      if (currentCard === undefined) throw new Error("目前沒有可修改的內容。");
+      buildCourseCardRevisionPrompt({
+        target: revisionTarget,
+        input,
+        instruction: revisionInstruction,
+        currentCard,
+        parent,
+        desiredResults,
+        evidencePlan,
+        unitConstraints,
+        selectedIndicatorId,
+      });
+    } catch (caught) {
+      setRevisionError(toUserErrorMessage(caught));
+      return;
+    }
+    if (!hasModelAccess) {
+      setRevisionError(`請先設定 ${providerName(settings.model)} API Key。`);
+      onOpenAiSettings();
+      return;
+    }
+    if (!consentGranted) {
+      setPendingAction(null);
+      setPendingRevisionTarget(revisionTarget);
+      setConsentOpen(true);
+      return;
+    }
+    void executeAiRevision(revisionTarget);
+  };
+
+  const applyAiRevision = () => {
+    if (!revisionDraft || revisionDraft.target !== revisionTarget) return;
+    const target = revisionDraft.target;
+    if (
+      target.kind === "keyword_summary" ||
+      target.kind === "keyword_theme" ||
+      target.kind === "curriculum_signal" ||
+      target.kind === "suggested_keywords"
+    ) {
+      setAnalysis(revisionDraft.parent as KeywordAnalysisResult);
+      setAlignment(null);
+      setCurriculumSelection(null);
+      setCurriculumRecommendation(null);
+      setSelectedIndicatorId("");
+      invalidateDesignAfterEndpointChange();
+    } else if (
+      target.kind === "curriculum_rationale" ||
+      target.kind === "six_c_recommendation" ||
+      target.kind === "desired_result" ||
+      target.kind === "learning_outcome" ||
+      target.kind === "four_element" ||
+      target.kind === "evidence_tools"
+    ) {
+      const nextAlignment = revisionDraft.parent as CourseAlignmentResult;
+      const nextIndicatorId =
+        nextAlignment.recommendations.find(
+          (item) => item.indicatorId === selectedIndicatorId,
+        )?.indicatorId ?? nextAlignment.recommendations[0].indicatorId;
+      setAlignment(nextAlignment);
+      setCurriculumSelection(nextAlignment.curriculumSelection);
+      setSelectedIndicatorId(nextIndicatorId);
+      setDesiredResults(buildDesiredResults(nextAlignment));
+      setDesiredResultsConfirmedAt(null);
+      setEvidencePlanConfirmedAt(null);
+      setUnitBlueprintConfirmedAt(null);
+      setLessonPromptStatus([]);
+      setPromptPreview(null);
+      setEvidenceError(null);
+      setBlueprintError(null);
+      setAlignmentAudit({
+        desiredResults: "empty",
+        evidencePlan: evidencePlan ? "stale" : "empty",
+        unitBlueprint: unitBlueprint ? "stale" : "empty",
+      });
+    } else if (target.kind !== "unit_arc" && target.kind !== "lesson") {
+      setEvidencePlan(revisionDraft.parent as EvidencePlanResult);
+      setEvidencePlanConfirmedAt(null);
+      setUnitBlueprintConfirmedAt(null);
+      setLessonPromptStatus([]);
+      setPromptPreview(null);
+      setEvidenceError(null);
+      setBlueprintError(null);
+      setAlignmentAudit((current) => ({
+        ...current,
+        evidencePlan:
+          current.desiredResults === "current" ? "current" : "stale",
+        unitBlueprint: unitBlueprint ? "stale" : "empty",
+      }));
+    } else {
+      const nextBlueprint = revisionDraft.parent as UnitBlueprintResult;
+      setUnitBlueprint(nextBlueprint);
+      setUnitBlueprintConfirmedAt(null);
+      setLessonPromptStatus([]);
+      setPromptPreview(null);
+      setBlueprintError(null);
+      setAlignmentAudit((current) => ({
+        ...current,
+        unitBlueprint: "current",
+      }));
+    }
+    setRevisionTarget(null);
+    setRevisionInstruction("");
+    setRevisionDraft(null);
+    setRevisionError(null);
+  };
+
+  const closeAiRevision = () => {
+    if (revisionBusy) return;
+    setRevisionTarget(null);
+    setPendingRevisionTarget(null);
+    setRevisionInstruction("");
+    setRevisionDraft(null);
+    setRevisionError(null);
+  };
+
   const confirmConsent = () => {
     const action = pendingAction;
+    const revision = pendingRevisionTarget;
     writeJson(KEYS.courseIdeationConsent, {
       version: CONSENT_VERSION,
       acceptedAt: Date.now(),
@@ -1301,7 +2704,9 @@ export default function CourseIdeationApp({
     setConsentGranted(true);
     setConsentOpen(false);
     setPendingAction(null);
+    setPendingRevisionTarget(null);
     if (action) void executeAction(action);
+    if (revision) void executeAiRevision(revision);
   };
 
   const revokeConsent = () => {
@@ -1314,7 +2719,13 @@ export default function CourseIdeationApp({
     setAnalysis(null);
     setAlignment(null);
     setCurriculumSelection(null);
+    setCurriculumRecommendation(null);
     setCustomCurriculumEntries([]);
+    setLessonReferenceAnalysis(null);
+    setAppliedLessonReference(null);
+    setExtractedLessonReference(null);
+    setReferenceFileName("");
+    setReferenceSelection(new Set());
     setSelectedIndicatorId("");
     setKeywordDraft("");
     setCustomPerformanceDraft("");
@@ -2101,6 +3512,169 @@ export default function CourseIdeationApp({
               </p>
             </div>
 
+            <section className="mt-5 rounded-xl border border-[#b9ccc2] bg-[#f7faf8] p-4">
+              <div className="flex items-start gap-3">
+                <div className="rounded-lg bg-emerald-100 p-2 text-emerald-800">
+                  <FileUp className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-black text-[#173f36]">
+                    匯入既有教案
+                  </h3>
+                  <p className="mt-1 text-[11px] font-medium leading-5 text-zinc-600">
+                    接受文字型 PDF、DOCX、UTF-8 TXT，單檔 10 MB。分析前請移除學生姓名與個資；附件文字會傳送到目前選擇的 AI 供應商。
+                  </p>
+                </div>
+              </div>
+              <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#9fc2b4] bg-white px-3 py-3 text-xs font-black text-[#175247] hover:bg-emerald-50">
+                <FileText className="h-4 w-4" />
+                {referenceFileName || "選擇一份教案附件"}
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                  className="sr-only"
+                  disabled={referenceBusy}
+                  onChange={(event) => {
+                    void handleLessonReferenceFile(
+                      event.target.files?.[0] ?? null,
+                    );
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              {extractedLessonReference && (
+                <p className="mt-2 text-[10px] font-bold text-zinc-500">
+                  已擷取 {extractedLessonReference.characterCount.toLocaleString()} 字
+                  {extractedLessonReference.pageCount
+                    ? `／${extractedLessonReference.pageCount} 頁`
+                    : ""}
+                  {extractedLessonReference.truncated
+                    ? "；只會傳送前 40,000 字"
+                    : ""}
+                </p>
+              )}
+              {referenceError && (
+                <p role="alert" className="mt-2 rounded-lg bg-red-50 p-2 text-[11px] font-bold leading-5 text-red-800">
+                  {referenceError}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={requestLessonReferenceAnalysis}
+                disabled={!extractedLessonReference || referenceBusy}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#2f7d68] bg-white py-2.5 text-xs font-black text-[#175247] hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {referenceBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {referenceBusy ? "正在分析教案…" : "AI 分析可沿用內容"}
+              </button>
+
+              {lessonReferenceAnalysis && (
+                <div className="mt-4 space-y-3 border-t border-[#dfe8e2] pt-4">
+                  <p className="text-xs font-black text-zinc-700">
+                    勾選要帶入後續設計的內容
+                  </p>
+                  {([
+                    ["course:grade", "年級", lessonReferenceAnalysis.inferredCourse.grade],
+                    ["course:subject", "學科", lessonReferenceAnalysis.inferredCourse.subject],
+                    ["course:unitName", "單元", lessonReferenceAnalysis.inferredCourse.unitName],
+                    ["course:teachingTopic", "主題", lessonReferenceAnalysis.inferredCourse.teachingTopic],
+                    [
+                      "course:coreKeywords",
+                      "關鍵字",
+                      lessonReferenceAnalysis.inferredCourse.coreKeywords.join("、"),
+                    ],
+                  ] as Array<[string, string, string | undefined]>)
+                    .filter(
+                      (item): item is [string, string, string] =>
+                        Boolean(item[2]),
+                    )
+                    .map(([key, label, value]) => (
+                      <label key={key} className="flex cursor-pointer items-start gap-2 rounded-lg border border-[#dfe8e2] bg-white p-2 text-[11px] leading-5">
+                        <input
+                          type="checkbox"
+                          checked={referenceSelection.has(key)}
+                          onChange={(event) =>
+                            toggleReferenceSelection(key, event.target.checked)
+                          }
+                          className="mt-1 accent-emerald-700"
+                        />
+                        <span>
+                          <strong>{label}：</strong>
+                          {value}
+                        </span>
+                      </label>
+                    ))}
+                  {(
+                    [
+                      ["learningGoals", "學習目標"],
+                      ["reusableActivities", "可沿用活動"],
+                      ["assessmentIdeas", "評量構想"],
+                      ["resources", "設備與資源"],
+                      ["constraints", "場地／時間限制"],
+                      ["differentiationSupports", "差異化支持"],
+                    ] as const
+                  ).map(([field, label]) =>
+                    lessonReferenceAnalysis[field].length > 0 ? (
+                      <fieldset key={field} className="rounded-lg border border-[#dfe8e2] bg-white p-3">
+                        <legend className="px-1 text-[11px] font-black text-zinc-700">
+                          {label}
+                        </legend>
+                        <div className="space-y-2">
+                          {lessonReferenceAnalysis[field].map((value, index) => {
+                            const key = `${field}:${index}`;
+                            return (
+                              <label key={key} className="flex cursor-pointer items-start gap-2 text-[11px] leading-5 text-zinc-700">
+                                <input
+                                  type="checkbox"
+                                  checked={referenceSelection.has(key)}
+                                  onChange={(event) =>
+                                    toggleReferenceSelection(
+                                      key,
+                                      event.target.checked,
+                                    )
+                                  }
+                                  className="mt-1 accent-emerald-700"
+                                />
+                                {value}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </fieldset>
+                    ) : null,
+                  )}
+                  {lessonReferenceAnalysis.cautions.length > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-[10px] font-black text-amber-900">分析提醒</p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4 text-[10px] font-medium leading-5 text-amber-900">
+                        {lessonReferenceAnalysis.cautions.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={applyLessonReferenceSelection}
+                    disabled={referenceSelection.size === 0}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#173f36] py-2.5 text-xs font-black text-white disabled:opacity-40"
+                  >
+                    <Check className="h-4 w-4" />
+                    帶入選取內容
+                  </button>
+                </div>
+              )}
+              {appliedLessonReference && (
+                <p className="mt-3 rounded-lg bg-emerald-100 p-2 text-[11px] font-black text-emerald-900">
+                  已將老師確認的教案參考加入後續課綱、評量與節次藍圖提示。
+                </p>
+              )}
+            </section>
+
             <button
               type="button"
               onClick={() => requestAction("analyze")}
@@ -2154,20 +3728,42 @@ export default function CourseIdeationApp({
                     </p>
                     <h2 className="mt-1 text-xl font-black">創意孵化與關鍵字提取器</h2>
                   </div>
-                  <span className="rounded-full bg-[#eef4f0] px-3 py-1 text-[10px] font-black text-[#175247]">
-                    {modelLabel.split("（")[0]}
-                  </span>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <span className="rounded-full bg-[#eef4f0] px-3 py-2 text-[10px] font-black text-[#175247]">
+                      {modelLabel.split("（")[0]}
+                    </span>
+                  </div>
                 </div>
-                <p className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-4 text-sm font-bold leading-7 text-amber-950">
-                  {analysis.summary}
-                </p>
+                <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm font-bold leading-7 text-amber-950">
+                      {analysis.summary}
+                    </p>
+                    <AiRevisionButton
+                      label="AI 修改這張卡"
+                      onClick={() =>
+                        openAiRevision({ kind: "keyword_summary" })
+                      }
+                      disabled={revisionBusy || busyAction !== null}
+                    />
+                  </div>
+                </div>
                 <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold leading-6 text-emerald-900">
                   現場可行性基準：以台灣高中一般班級、50 分鐘課時、一般教室與少量共用裝置為預設；自然科可依物理、化學、生物或地科選用一般高中可能具備的基本實驗器材，但須確認數量、安全與可用狀態，並提供校內低科技替代方案。
                 </p>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  {analysis.themes.map((theme) => (
+                  {analysis.themes.map((theme, index) => (
                     <article key={theme.label} className="rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
-                      <h3 className="text-sm font-black">{theme.label}</h3>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="text-sm font-black">{theme.label}</h3>
+                        <AiRevisionButton
+                          label="AI 修改這張卡"
+                          onClick={() =>
+                            openAiRevision({ kind: "keyword_theme", index })
+                          }
+                          disabled={revisionBusy || busyAction !== null}
+                        />
+                      </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {theme.keywords.map((keyword) => (
                           <span key={keyword} className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-[#175247] ring-1 ring-[#dfe8e2]">
@@ -2184,17 +3780,35 @@ export default function CourseIdeationApp({
                 <div className="mt-4 rounded-xl border border-[#dfe8e2] p-4">
                   <h3 className="text-xs font-black text-zinc-700">深度學習對齊訊號</h3>
                   <ul className="mt-2 grid gap-2 text-sm font-medium leading-6 text-zinc-600 sm:grid-cols-2">
-                    {analysis.curriculumSignals.map((signal) => (
-                      <li key={signal} className="flex items-start gap-2">
-                        <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-emerald-700" />
-                        {signal}
+                    {analysis.curriculumSignals.map((signal, index) => (
+                      <li key={signal} className="flex items-start justify-between gap-2 rounded-lg bg-[#f7faf8] p-2">
+                        <span className="flex items-start gap-2">
+                          <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-emerald-700" />
+                          {signal}
+                        </span>
+                        <AiRevisionButton
+                          label="AI 修改這張卡"
+                          onClick={() =>
+                            openAiRevision({ kind: "curriculum_signal", index })
+                          }
+                          disabled={revisionBusy || busyAction !== null}
+                        />
                       </li>
                     ))}
                   </ul>
                 </div>
                 {analysis.suggestedKeywords.length > 0 && (
                   <div className="mt-4">
-                    <p className="text-xs font-black text-zinc-600">可補充關鍵字</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-black text-zinc-600">可補充關鍵字</p>
+                      <AiRevisionButton
+                        label="AI 修改這張卡"
+                        onClick={() =>
+                          openAiRevision({ kind: "suggested_keywords" })
+                        }
+                        disabled={revisionBusy || busyAction !== null}
+                      />
+                    </div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {analysis.suggestedKeywords.map((keyword) => {
                         const disabled =
@@ -2228,7 +3842,7 @@ export default function CourseIdeationApp({
                     </p>
                     <h2 className="mt-1 text-xl font-black">108 課綱校準</h2>
                     <p className="mt-1 text-xs font-bold leading-5 text-zinc-500">
-                      已依年級與學科硬性篩選，再依單元、主題和關鍵字排序。AI 只可採用下列受控 ID。
+                      已依年級與學科硬性篩選，再依單元、主題和關鍵字排序。AI 會各推薦 5 項學習表現與學習內容，教師各選 2 項；其他受控條目則依科目、必修／選修與課綱代碼類別分組，仍可搜尋並自由改選。
                     </p>
                   </div>
                   <span className="w-fit rounded-full bg-[#eef4f0] px-3 py-1 text-[10px] font-black text-[#175247]">
@@ -2236,102 +3850,84 @@ export default function CourseIdeationApp({
                   </span>
                 </div>
 
-                {curriculumSelection?.mode === "teacher_edited" && !alignment && (
+                {curriculumSelectionNeedsRecalibration && (
                   <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-950">
-                    教師已調整課綱選擇。舊的 6Cs 與三層成果已清除，請重新校準。
+                    教師已調整課綱選擇。階段二與後續內容會保留顯示，但目前仍是舊版本；請各選滿 2 項後重新校準。
                   </div>
                 )}
-                {curriculumSelection && alignment && (
-                  <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold leading-6 text-emerald-950">
-                    {curriculumSelection.mode === "ai_auto"
-                      ? "AI 自動採用"
-                      : "教師調整後採用"}
-                    ：{curriculumSelection.rationale}
+                {curriculumSelection &&
+                  alignment &&
+                  !curriculumSelectionNeedsRecalibration && (
+                  <div className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold leading-6 text-emerald-950">
+                    <p>
+                      {curriculumSelection.mode === "ai_auto"
+                        ? "AI 自動採用"
+                        : "教師調整後採用"}
+                      ：{curriculumSelection.rationale}
+                    </p>
+                    <AiRevisionButton
+                      label="AI 修改這張卡"
+                      onClick={() =>
+                        openAiRevision({ kind: "curriculum_rationale" })
+                      }
+                      disabled={revisionBusy || busyAction !== null}
+                    />
                   </div>
                 )}
 
-                {[
-                  {
-                    kind: "learning_performance" as const,
-                    title: "學習表現",
-                    entries: curriculumCandidates.performances,
-                    selectedIds: curriculumSelection?.performanceIds ?? [],
-                    hint: "AI 採用 1–2 項",
-                  },
-                  {
-                    kind: "learning_content" as const,
-                    title: "學習內容",
-                    entries: curriculumCandidates.contents,
-                    selectedIds: curriculumSelection?.contentIds ?? [],
-                    hint: "AI 採用 1–3 項",
-                  },
-                ].map((group) => (
-                  <div key={group.kind} className="mt-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <h3 className="text-sm font-black text-zinc-800">
-                        {group.title}
-                      </h3>
-                      <span className="text-[10px] font-black text-zinc-500">
-                        {group.hint} · 候選 {group.entries.length} 項
-                      </span>
-                    </div>
-                    {group.entries.length > 0 ? (
-                      <div className="mt-2 grid gap-2">
-                        {group.entries.map((entry) => {
-                          const checked = group.selectedIds.includes(entry.id);
-                          return (
-                            <label
-                              key={entry.id}
-                              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
-                                checked
-                                  ? "border-[#2f7d68] bg-emerald-50"
-                                  : "border-[#dfe8e2] bg-[#f7faf8] hover:border-[#b9ccc2]"
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(event) =>
-                                  adjustCurriculumSelection(
-                                    group.kind,
-                                    entry.id,
-                                    event.target.checked,
-                                  )
-                                }
-                                className="mt-1 h-4 w-4 accent-[#173f36]"
-                              />
-                              <span className="min-w-0">
-                                <span className="flex flex-wrap items-center gap-2">
-                                  <span className="text-xs font-black text-[#173f36]">
-                                    {entry.code}
-                                  </span>
-                                  <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-black text-zinc-500 ring-1 ring-[#dfe8e2]">
-                                    第 {entry.stage} 學習階段
-                                  </span>
-                                  {entry.sourceVersion === "unverified" && (
-                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black text-amber-900">
-                                      教師自訂／未由系統核對
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="mt-1 block text-xs font-medium leading-6 text-zinc-700">
-                                  {entry.text}
-                                </span>
-                                <span className="mt-1 block text-[10px] font-bold leading-5 text-zinc-500">
-                                  來源：{entry.sourceDocumentTitle} · {entry.sourceName}
-                                </span>
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="mt-2 rounded-xl border border-dashed border-amber-300 bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-950">
-                        目前受控資料沒有符合的{group.title}，請在下方加入教師自訂依據。
-                      </p>
-                    )}
-                  </div>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => requestAction("align")}
+                  disabled={
+                    busyAction !== null ||
+                    !curriculumCandidatesReady ||
+                    (curriculumSelection?.mode === "teacher_edited" &&
+                      !curriculumSelectionComplete)
+                  }
+                  className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#b7791f] py-3.5 text-sm font-black text-white hover:bg-[#946114] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {busyAction === "align" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Target className="h-4 w-4" />
+                  )}
+                  {busyAction === "align"
+                    ? "正在校準課綱與 6Cs…"
+                    : curriculumSelection?.mode === "teacher_edited"
+                      ? "依教師調整重新校準"
+                      : "進行 108 課綱與 6Cs 校準"}
+                </button>
+
+                <CurriculumMultiSelect
+                  title="學習表現"
+                  entries={curriculumOptions.performances}
+                  selectedIds={curriculumSelection?.performanceIds ?? []}
+                  recommendedIds={
+                    curriculumRecommendation?.performanceIds ?? []
+                  }
+                  maximum={2}
+                  onToggle={(id, checked) =>
+                    adjustCurriculumSelection(
+                      "learning_performance",
+                      id,
+                      checked,
+                    )
+                  }
+                />
+                <CurriculumMultiSelect
+                  title="學習內容"
+                  entries={curriculumOptions.contents}
+                  selectedIds={curriculumSelection?.contentIds ?? []}
+                  recommendedIds={curriculumRecommendation?.contentIds ?? []}
+                  maximum={2}
+                  onToggle={(id, checked) =>
+                    adjustCurriculumSelection(
+                      "learning_content",
+                      id,
+                      checked,
+                    )
+                  }
+                />
 
                 <details className="mt-5 rounded-xl border border-[#dfe8e2] bg-[#f7faf8]">
                   <summary className="cursor-pointer px-4 py-3 text-xs font-black text-zinc-700">
@@ -2375,30 +3971,6 @@ export default function CourseIdeationApp({
                     ))}
                   </div>
                 </details>
-
-                <button
-                  type="button"
-                  onClick={() => requestAction("align")}
-                  disabled={
-                    busyAction !== null ||
-                    curriculumCandidates.performances.length === 0 ||
-                    curriculumCandidates.contents.length === 0 ||
-                    (curriculumSelection?.mode === "teacher_edited" &&
-                      !curriculumSelectionComplete)
-                  }
-                  className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#b7791f] py-3.5 text-sm font-black text-white hover:bg-[#946114] disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  {busyAction === "align" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Target className="h-4 w-4" />
-                  )}
-                  {busyAction === "align"
-                    ? "正在校準課綱與 6Cs…"
-                    : curriculumSelection?.mode === "teacher_edited"
-                      ? "依教師調整重新校準"
-                      : "進行 108 課綱與 6Cs 校準"}
-                </button>
               </section>
             )}
 
@@ -2466,39 +4038,63 @@ export default function CourseIdeationApp({
                 </nav>
 
                 <section className="rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-[#2f7d68]">
-                    階段二
-                  </p>
-                  <h2 className="mt-1 text-xl font-black">6Cs 子向度推薦</h2>
-                  <p className="mt-1 text-xs font-bold text-zinc-500">
-                    選擇一個子向度作為後續評量設計主軸。
-                  </p>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-[#2f7d68]">
+                        階段二
+                      </p>
+                      <h2 className="mt-1 text-xl font-black">6Cs 子向度推薦</h2>
+                      <p className="mt-1 text-xs font-bold text-zinc-500">
+                        選擇一個子向度作為後續評量設計主軸。
+                      </p>
+                    </div>
+                  </div>
                   <div className="mt-4 grid gap-3">
                     {alignment.recommendations.map((recommendation) => {
                       const indicator = getIndicatorById(recommendation.indicatorId);
                       if (!indicator) return null;
                       const selected = selectedIndicatorId === recommendation.indicatorId;
                       return (
-                        <button
+                        <article
                           key={recommendation.indicatorId}
-                          type="button"
-                          onClick={() => chooseIndicator(recommendation.indicatorId)}
                           className={`rounded-xl border p-4 text-left transition ${
                             selected
                               ? "border-[#173f36] bg-[#173f36] text-white shadow-md"
                               : "border-[#dfe8e2] bg-[#f7faf8] hover:border-[#b9ccc2]"
                           }`}
                         >
-                          <div className="flex items-start justify-between gap-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <p className={`text-[10px] font-black uppercase tracking-widest ${selected ? "text-emerald-200" : "text-emerald-700"}`}>
                                 {indicator.dimension} · {indicator.id}
                               </p>
                               <h3 className="mt-1 text-base font-black">{indicator.name}</h3>
                             </div>
-                            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${selected ? "border-white bg-white text-[#173f36]" : "border-[#b9ccc2] text-transparent"}`}>
-                              <Check className="h-4 w-4" />
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <AiRevisionButton
+                                label="AI 修改這張卡"
+                                onClick={() =>
+                                  openAiRevision({
+                                    kind: "six_c_recommendation",
+                                    indicatorId: recommendation.indicatorId,
+                                  })
+                                }
+                                disabled={revisionBusy || busyAction !== null}
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  chooseIndicator(recommendation.indicatorId)
+                                }
+                                className={`rounded-lg border px-3 py-2 text-xs font-black ${
+                                  selected
+                                    ? "border-white bg-white text-[#173f36]"
+                                    : "border-[#b9ccc2] bg-white text-[#173f36]"
+                                }`}
+                              >
+                                {selected ? "已選主軸" : "選為主軸"}
+                              </button>
+                            </div>
                           </div>
                           <p className={`mt-3 text-sm font-medium leading-7 ${selected ? "text-emerald-50" : "text-zinc-600"}`}>
                             {recommendation.reason}
@@ -2506,7 +4102,7 @@ export default function CourseIdeationApp({
                           <p className={`mt-3 text-xs font-black ${selected ? "text-amber-200" : "text-[#9a6617]"}`}>
                             註：關鍵字｜{recommendation.matchedKeywords.join("、")}
                           </p>
-                        </button>
+                        </article>
                       );
                     })}
                   </div>
@@ -2545,19 +4141,43 @@ export default function CourseIdeationApp({
                     </div>
                     <div className="mt-4 grid gap-3 lg:grid-cols-3">
                       {[
-                        ["遷移目標", desiredResults.transferGoals],
-                        ["核心理解", desiredResults.enduringUnderstandings],
-                        ["核心問題", desiredResults.essentialQuestions],
-                      ].map(([label, items]) => (
+                        {
+                          label: "遷移目標",
+                          field: "transferGoals" as const,
+                          items: desiredResults.transferGoals,
+                        },
+                        {
+                          label: "核心理解",
+                          field: "enduringUnderstandings" as const,
+                          items: desiredResults.enduringUnderstandings,
+                        },
+                        {
+                          label: "核心問題",
+                          field: "essentialQuestions" as const,
+                          items: desiredResults.essentialQuestions,
+                        },
+                      ].map(({ label, field, items }) => (
                         <article
-                          key={label as string}
+                          key={label}
                           className="rounded-xl border border-sky-200 bg-white p-4"
                         >
-                          <h3 className="text-xs font-black text-sky-900">
-                            {label as string}
-                          </h3>
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-xs font-black text-sky-900">
+                              {label}
+                            </h3>
+                            <AiRevisionButton
+                              label="AI 修改這張卡"
+                              onClick={() =>
+                                openAiRevision({
+                                  kind: "desired_result",
+                                  field,
+                                })
+                              }
+                              disabled={revisionBusy || busyAction !== null}
+                            />
+                          </div>
                           <ul className="mt-2 space-y-2 text-xs font-medium leading-6 text-zinc-700">
-                            {(items as string[]).map((item) => (
+                            {items.map((item) => (
                               <li key={item} className="flex items-start gap-2">
                                 <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-sky-700" />
                                 {item}
@@ -2595,9 +4215,21 @@ export default function CourseIdeationApp({
                   </div>
                   <div className="mt-4 grid gap-3">
                     <article className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">
-                        01 知識基礎
-                      </p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">
+                          01 知識基礎
+                        </p>
+                        <AiRevisionButton
+                          label="AI 修改這張卡"
+                          onClick={() =>
+                            openAiRevision({
+                              kind: "learning_outcome",
+                              outcomeId: "knowledge-foundation",
+                            })
+                          }
+                          disabled={revisionBusy || busyAction !== null}
+                        />
+                      </div>
                       <div className="mt-3 rounded-lg border border-violet-100 bg-white p-3">
                         <p className="text-[10px] font-black text-violet-700">
                           課綱依據
@@ -2648,19 +4280,41 @@ export default function CourseIdeationApp({
                       </p>
                     </article>
                     {[
-                      ["02 素養子向度", alignment.learningOutcomes.competencySubdimension],
-                      ["03 四要素整合實踐", alignment.learningOutcomes.fourElementsPractice],
-                    ].map(([label, outcome]) => (
-                      <article key={label as string} className="rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">
-                          {label as string}
-                        </p>
+                      {
+                        label: "02 素養子向度",
+                        outcomeId: "competency-subdimension",
+                        outcome:
+                          alignment.learningOutcomes.competencySubdimension,
+                      },
+                      {
+                        label: "03 四要素整合實踐",
+                        outcomeId: "four-elements-practice",
+                        outcome:
+                          alignment.learningOutcomes.fourElementsPractice,
+                      },
+                    ].map(({ label, outcomeId, outcome }) => (
+                      <article key={label} className="rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">
+                            {label}
+                          </p>
+                          <AiRevisionButton
+                            label="AI 修改這張卡"
+                            onClick={() =>
+                              openAiRevision({
+                                kind: "learning_outcome",
+                                outcomeId,
+                              })
+                            }
+                            disabled={revisionBusy || busyAction !== null}
+                          />
+                        </div>
                         <p className="mt-2 text-sm font-black leading-7 text-zinc-800">
-                          {(outcome as { statement: string }).statement}
+                          {outcome.statement}
                         </p>
                         <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
                           <span className="font-black">可觀察證據：</span>
-                          {(outcome as { evidence: string }).evidence}
+                          {outcome.evidence}
                         </p>
                       </article>
                     ))}
@@ -2675,7 +4329,19 @@ export default function CourseIdeationApp({
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     {alignment.fourElements.map((element) => (
                       <article key={element.name} className="rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
-                        <h3 className="text-sm font-black text-[#173f36]">{element.name}</h3>
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="text-sm font-black text-[#173f36]">{element.name}</h3>
+                          <AiRevisionButton
+                            label="AI 修改這張卡"
+                            onClick={() =>
+                              openAiRevision({
+                                kind: "four_element",
+                                name: element.name,
+                              })
+                            }
+                            disabled={revisionBusy || busyAction !== null}
+                          />
+                        </div>
                         <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
                           <span className="font-black">設計動作：</span>
                           {element.designMove}
@@ -2687,6 +4353,27 @@ export default function CourseIdeationApp({
                       </article>
                     ))}
                   </div>
+                  <article className="mt-4 rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-black text-[#173f36]">
+                        證據工具
+                      </h3>
+                      <AiRevisionButton
+                        label="AI 修改這張卡"
+                        onClick={() =>
+                          openAiRevision({ kind: "evidence_tools" })
+                        }
+                        disabled={revisionBusy || busyAction !== null}
+                      />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {alignment.evidenceTools.map((tool) => (
+                        <span key={tool} className="rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-zinc-700 ring-1 ring-[#dfe8e2]">
+                          {tool}
+                        </span>
+                      ))}
+                    </div>
+                  </article>
                 </section>
 
                 <section
@@ -2706,27 +4393,29 @@ export default function CourseIdeationApp({
                         先決定學生要留下哪些證據，再倒推教學活動。學科規準與 6Cs 官方進程分開呈現。
                       </p>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black ${
-                        alignmentAudit.evidencePlan === "current" &&
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                      <span
+                        className={`rounded-full px-3 py-1 text-[10px] font-black ${
+                          alignmentAudit.evidencePlan === "current" &&
+                          evidencePlanConfirmedAt
+                            ? "bg-emerald-100 text-emerald-900"
+                            : alignmentAudit.evidencePlan === "stale"
+                              ? "bg-red-100 text-red-900"
+                              : evidencePlan
+                                ? "bg-amber-100 text-amber-950"
+                                : "bg-zinc-100 text-zinc-600"
+                        }`}
+                      >
+                        {alignmentAudit.evidencePlan === "current" &&
                         evidencePlanConfirmedAt
-                          ? "bg-emerald-100 text-emerald-900"
+                          ? "教師已確認"
                           : alignmentAudit.evidencePlan === "stale"
-                            ? "bg-red-100 text-red-900"
+                            ? "需要重新校準"
                             : evidencePlan
-                              ? "bg-amber-100 text-amber-950"
-                              : "bg-zinc-100 text-zinc-600"
-                      }`}
-                    >
-                      {alignmentAudit.evidencePlan === "current" &&
-                      evidencePlanConfirmedAt
-                        ? "教師已確認"
-                        : alignmentAudit.evidencePlan === "stale"
-                          ? "需要重新校準"
-                          : evidencePlan
-                            ? "等待教師確認"
-                            : "尚未建立"}
-                    </span>
+                              ? "等待教師確認"
+                              : "尚未建立"}
+                      </span>
+                    </div>
                   </div>
 
                   {alignmentAudit.desiredResults !== "current" && (
@@ -2754,6 +4443,13 @@ export default function CourseIdeationApp({
                           <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black text-emerald-900">
                             台灣高中現場可行
                           </span>
+                          <AiRevisionButton
+                            label="AI 修改這張卡"
+                            onClick={() =>
+                              openAiRevision({ kind: "performance_task" })
+                            }
+                            disabled={revisionBusy || busyAction !== null}
+                          />
                         </div>
                         <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
                           {[
@@ -2783,11 +4479,23 @@ export default function CourseIdeationApp({
                             key={map.phase}
                             className="rounded-xl border border-amber-200 bg-white p-4"
                           >
-                            <h3 className="text-sm font-black text-amber-950">
-                              {map.phase === "pre"
-                                ? "課前 Q1–Q4 證據目的"
-                                : "課後 Q1–Q4 遷移證據目的"}
-                            </h3>
+                            <div className="flex items-start justify-between gap-2">
+                              <h3 className="text-sm font-black text-amber-950">
+                                {map.phase === "pre"
+                                  ? "課前 Q1–Q4 證據目的"
+                                  : "課後 Q1–Q4 遷移證據目的"}
+                              </h3>
+                              <AiRevisionButton
+                                label="AI 修改這張卡"
+                                onClick={() =>
+                                  openAiRevision({
+                                    kind: "question_context",
+                                    phase: map.phase,
+                                  })
+                                }
+                                disabled={revisionBusy || busyAction !== null}
+                              />
+                            </div>
                             <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
                               <span className="font-black">共同問題：</span>
                               {map.sharedProblem}
@@ -2803,16 +4511,31 @@ export default function CourseIdeationApp({
                                   key={question.id}
                                   className="rounded-lg bg-amber-50 p-3 text-xs leading-6"
                                 >
-                                  <p className="font-black text-amber-900">
-                                    {question.id} ·{" "}
-                                    {question.focus === "conceptual_understanding"
-                                      ? "概念理解"
-                                      : question.focus === "action_application"
-                                        ? "行動應用"
-                                        : question.focus === "life_transfer"
-                                          ? "生活遷移"
-                                          : "引導式簡答與四級進程"}
-                                  </p>
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="font-black text-amber-900">
+                                      {question.id} ·{" "}
+                                      {question.focus === "conceptual_understanding"
+                                        ? "概念理解"
+                                        : question.focus === "action_application"
+                                          ? "行動應用"
+                                          : question.focus === "life_transfer"
+                                            ? "生活遷移"
+                                            : "引導式簡答與四級進程"}
+                                    </p>
+                                    <AiRevisionButton
+                                      label="AI 修改這張卡"
+                                      onClick={() =>
+                                        openAiRevision({
+                                          kind: "question_purpose",
+                                          phase: map.phase,
+                                          questionId: question.id,
+                                        })
+                                      }
+                                      disabled={
+                                        revisionBusy || busyAction !== null
+                                      }
+                                    />
+                                  </div>
                                   <p className="mt-1 font-medium text-zinc-700">
                                     {question.purpose}
                                   </p>
@@ -2832,19 +4555,31 @@ export default function CourseIdeationApp({
                             key={item.id}
                             className="rounded-xl border border-amber-200 bg-white p-4"
                           >
-                            <div className="flex items-center justify-between gap-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
                               <h3 className="text-sm font-black text-zinc-800">
                                 {item.title}
                               </h3>
-                              <span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-900">
-                                {item.type === "diagnostic"
-                                  ? "課前診斷"
-                                  : item.type === "formative"
-                                    ? "形成性"
-                                    : item.type === "summative"
-                                      ? "總結性"
-                                      : "課後遷移"}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-900">
+                                  {item.type === "diagnostic"
+                                    ? "課前診斷"
+                                    : item.type === "formative"
+                                      ? "形成性"
+                                      : item.type === "summative"
+                                        ? "總結性"
+                                        : "課後遷移"}
+                                </span>
+                                <AiRevisionButton
+                                  label="AI 修改這張卡"
+                                  onClick={() =>
+                                    openAiRevision({
+                                      kind: "evidence_item",
+                                      evidenceId: item.id,
+                                    })
+                                  }
+                                  disabled={revisionBusy || busyAction !== null}
+                                />
+                              </div>
                             </div>
                             <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
                               <span className="font-black">證據：</span>
@@ -2874,9 +4609,21 @@ export default function CourseIdeationApp({
                               key={criterion.criterionId}
                               className="rounded-lg bg-amber-50 p-3"
                             >
-                              <h4 className="text-xs font-black text-amber-900">
-                                {criterion.criterionId}
-                              </h4>
+                              <div className="flex items-center justify-between gap-2">
+                                <h4 className="text-xs font-black text-amber-900">
+                                  {criterion.criterionId}
+                                </h4>
+                                <AiRevisionButton
+                                  label="AI 修改這張卡"
+                                  onClick={() =>
+                                    openAiRevision({
+                                      kind: "rubric",
+                                      criterionId: criterion.criterionId,
+                                    })
+                                  }
+                                  disabled={revisionBusy || busyAction !== null}
+                                />
+                              </div>
                               <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
                                 {[
                                   ["證據有限", criterion.levels.evidenceLimited],
@@ -3299,27 +5046,29 @@ export default function CourseIdeationApp({
                         每節連結成果、成功指標、可觀察證據與教學決策，並同步準備「知識基礎＋NPDL 子向度思考」學習單；通過檢查後提供一份完整 Canvas 提示詞。
                       </p>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black ${
-                        alignmentAudit.unitBlueprint === "current" &&
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                      <span
+                        className={`rounded-full px-3 py-1 text-[10px] font-black ${
+                          alignmentAudit.unitBlueprint === "current" &&
+                          unitBlueprintConfirmedAt
+                            ? "bg-emerald-100 text-emerald-900"
+                            : alignmentAudit.unitBlueprint === "stale"
+                              ? "bg-red-100 text-red-900"
+                              : unitBlueprint
+                                ? "bg-indigo-100 text-indigo-950"
+                                : "bg-zinc-100 text-zinc-600"
+                        }`}
+                      >
+                        {alignmentAudit.unitBlueprint === "current" &&
                         unitBlueprintConfirmedAt
-                          ? "bg-emerald-100 text-emerald-900"
+                          ? "完整提示詞已準備"
                           : alignmentAudit.unitBlueprint === "stale"
-                            ? "bg-red-100 text-red-900"
+                            ? "需要重新校準"
                             : unitBlueprint
-                              ? "bg-indigo-100 text-indigo-950"
-                              : "bg-zinc-100 text-zinc-600"
-                      }`}
-                    >
-                      {alignmentAudit.unitBlueprint === "current" &&
-                      unitBlueprintConfirmedAt
-                        ? "完整提示詞已準備"
-                        : alignmentAudit.unitBlueprint === "stale"
-                          ? "需要重新校準"
-                          : unitBlueprint
-                            ? "請重新產生"
-                            : "尚未建立"}
-                    </span>
+                              ? "請重新產生"
+                              : "尚未建立"}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -3435,9 +5184,16 @@ export default function CourseIdeationApp({
 
                   {unitBlueprint && (
                     <div className="mt-5 space-y-3">
-                      <p className="rounded-xl border border-indigo-200 bg-white p-4 text-sm font-bold leading-7 text-indigo-950">
-                        {unitBlueprint.unitArc}
-                      </p>
+                      <div className="flex items-start justify-between gap-3 rounded-xl border border-indigo-200 bg-white p-4">
+                        <p className="text-sm font-bold leading-7 text-indigo-950">
+                          {unitBlueprint.unitArc}
+                        </p>
+                        <AiRevisionButton
+                          label="AI 修改這張卡"
+                          onClick={() => openAiRevision({ kind: "unit_arc" })}
+                          disabled={revisionBusy || busyAction !== null}
+                        />
+                      </div>
 
                       <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4 shadow-sm">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -3539,9 +5295,21 @@ export default function CourseIdeationApp({
                               key={lesson.id}
                               className="rounded-lg bg-indigo-50 p-3"
                             >
-                              <p className="text-[10px] font-black uppercase text-indigo-700">
-                                第 {lesson.lessonNumber} 節 · {lesson.minutes} 分鐘
-                              </p>
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-[10px] font-black uppercase text-indigo-700">
+                                  第 {lesson.lessonNumber} 節 · {lesson.minutes} 分鐘
+                                </p>
+                                <AiRevisionButton
+                                  label="AI 修改這張卡"
+                                  onClick={() =>
+                                    openAiRevision({
+                                      kind: "lesson",
+                                      lessonId: lesson.id,
+                                    })
+                                  }
+                                  disabled={revisionBusy || busyAction !== null}
+                                />
+                              </div>
                               <p className="mt-1 text-sm font-black text-indigo-950">
                                 {lesson.title}
                               </p>
@@ -3552,6 +5320,26 @@ export default function CourseIdeationApp({
                           ))}
                         </ol>
                       </details>
+
+                      {!unitBlueprintConfirmedAt &&
+                        alignmentAudit.unitBlueprint === "current" && (
+                          <div className="rounded-xl border-2 border-indigo-300 bg-indigo-100/70 p-4 shadow-sm">
+                            <p className="text-sm font-black text-indigo-950">
+                              單卡已更新，請確認藍圖並更新 Canvas
+                            </p>
+                            <p className="mt-1 text-xs font-medium leading-6 text-indigo-800">
+                              系統會重新檢查節次順序、成功指標覆蓋、診斷、總結與遷移證據。
+                            </p>
+                            <button
+                              type="button"
+                              onClick={confirmUnitBlueprint}
+                              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-800 py-3 text-sm font-black text-white hover:bg-indigo-900"
+                            >
+                              <Check className="h-4 w-4" />
+                              確認藍圖並更新 Canvas
+                            </button>
+                          </div>
+                        )}
 
                       {false && <details
                         className="rounded-xl border border-indigo-300 bg-white"
@@ -4030,7 +5818,11 @@ export default function CourseIdeationApp({
         provider={providerName(settings.model)}
         modelLabel={modelLabel}
         purpose={
-          pendingAction === "align"
+          pendingRevisionTarget
+            ? `AI 輔助修改${courseCardRevisionLabel(pendingRevisionTarget)}`
+            : pendingAction === "reference"
+              ? "分析既有教案附件文字"
+            : pendingAction === "align"
             ? "108 課綱與 6Cs 校準、學習成果生成"
             : pendingAction === "evidence"
               ? "逆向設計評量證據生成"
@@ -4042,8 +5834,24 @@ export default function CourseIdeationApp({
         onCancel={() => {
           setConsentOpen(false);
           setPendingAction(null);
+          setPendingRevisionTarget(null);
         }}
         onConfirm={confirmConsent}
+      />
+      <AiRevisionModal
+        target={revisionTarget}
+        instruction={revisionInstruction}
+        draft={revisionDraft}
+        busy={revisionBusy}
+        error={revisionError}
+        onInstructionChange={(value) => {
+          setRevisionInstruction(value);
+          setRevisionDraft(null);
+          setRevisionError(null);
+        }}
+        onGenerate={requestAiRevision}
+        onApply={applyAiRevision}
+        onClose={closeAiRevision}
       />
       <PromptPreviewModal
         promptPackage={promptPreview}

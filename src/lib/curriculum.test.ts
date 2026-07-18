@@ -6,6 +6,7 @@ import {
   CURRICULUM_SOURCES,
   createCustomCurriculumEntry,
   getCurriculumCandidates,
+  getCurriculumOptions,
 } from "@/lib/curriculum";
 
 describe("controlled 108 curriculum snapshot", () => {
@@ -49,18 +50,19 @@ describe("controlled 108 curriculum snapshot", () => {
   });
 
   it("uses the combined history, geography, and civics pool for social studies", () => {
-    const candidates = getCurriculumCandidates({
+    const input = {
       grade: "高一",
       subject: "社會",
       unitName: "公共政策與環境",
       teachingTopic: "比較政策對環境與人民行為的影響",
       coreKeywords: ["公共政策", "氣候", "公民行動"],
-    });
-    expect(new Set(candidates.contents.map((entry) => entry.subject))).toEqual(
+    };
+    const options = getCurriculumOptions(input);
+    expect(new Set(options.contents.map((entry) => entry.subject))).toEqual(
       new Set(["歷史", "地理", "公民與社會"]),
     );
 
-    const geographyOnly = getCurriculumCandidates({
+    const geographyOnly = getCurriculumOptions({
       grade: "高一",
       subject: "地理",
       unitName: "氣候與人類生活",
@@ -75,9 +77,8 @@ describe("controlled 108 curriculum snapshot", () => {
     ).toEqual(new Set(["地理"]));
   });
 
-  it("covers every first-batch subject in stages IV and V", () => {
+  it("offers both kinds for every first-batch subject in stages IV and V", () => {
     const expectedSubjects = [
-      "自然科學",
       "化學",
       "生物",
       "物理",
@@ -90,15 +91,49 @@ describe("controlled 108 curriculum snapshot", () => {
       "公民與社會",
     ];
     for (const subject of expectedSubjects) {
-      const stages = new Set(
-        CURRICULUM_ENTRIES
-          .filter((entry) => entry.subject === subject)
-          .map((entry) => entry.stage),
-      );
-      expect(stages, `${subject} 未完整涵蓋第四、第五學習階段`).toEqual(
-        new Set(["IV", "V"]),
-      );
+      for (const grade of ["國八", "高一"]) {
+        const options = getCurriculumOptions({
+          grade,
+          subject,
+          unitName: "課綱涵蓋驗證",
+          teachingTopic: "檢查該科可用的學習表現與學習內容",
+          coreKeywords: ["學科知識", "探究實作", "證據判讀"],
+        });
+        expect(
+          options.performances.length,
+          `${subject} ${grade} 缺少學習表現`,
+        ).toBeGreaterThan(0);
+        expect(
+          options.contents.length,
+          `${subject} ${grade} 缺少學習內容`,
+        ).toBeGreaterThan(0);
+      }
     }
+  });
+
+  it("keeps a teacher-selected option outside the ranked AI shortlist", () => {
+    const input = {
+      grade: "高一",
+      subject: "地理",
+      unitName: "氣候變遷",
+      teachingTopic: "分析極端氣候風險",
+      coreKeywords: ["氣候風險", "調適", "證據"],
+    };
+    const options = getCurriculumOptions(input);
+    const shortlist = getCurriculumCandidates(input);
+    const outside = options.contents.find(
+      (entry) => !shortlist.contents.some((item) => item.id === entry.id),
+    );
+    expect(outside).toBeDefined();
+    const withTeacherSelection = getCurriculumCandidates(
+      input,
+      null,
+      [],
+      { contentIds: [outside!.id] },
+    );
+    expect(
+      withTeacherSelection.contents.some((entry) => entry.id === outside!.id),
+    ).toBe(true);
   });
 
   it("labels teacher-provided fallback entries as unverified", () => {

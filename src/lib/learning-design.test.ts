@@ -29,8 +29,14 @@ const INPUT: CourseIdeationInput = {
 
 const ALIGNMENT: CourseAlignmentResult = {
   curriculumSelection: {
-    performanceIds: ["geography-v-performance-inquiry-1"],
-    contentIds: ["geography-v-content-climate-5"],
+    performanceIds: [
+      "5730-7406-performance-1c-v-1",
+      "5730-7406-performance-3b-v-2",
+    ],
+    contentIds: [
+      "5730-7406-content-ia-v-2",
+      "5730-7406-content-eb-v-5",
+    ],
     rationale: "以氣候資料分析與調適方案對齊地理探究。",
     mode: "ai_auto",
   },
@@ -317,11 +323,19 @@ describe("learning design project", () => {
     ]);
     expect(evidencePlan.rubric).toHaveLength(2);
 
-    const prompt = buildEvidencePlanPrompt(INPUT, ALIGNMENT, "C2-P1");
+    const prompt = buildEvidencePlanPrompt(INPUT, ALIGNMENT, "C2-P1", {
+      learningGoals: ["沿用既有教案的資料判讀目標"],
+      reusableActivities: ["校園踏查"],
+      assessmentIdeas: ["主張證據推論表"],
+      resources: ["每組一台共用平板"],
+      constraints: ["每節 50 分鐘"],
+      differentiationSupports: ["提供圖表判讀句型"],
+    });
     expect(prompt.stable).toContain("一班約 30–40 位學生");
     expect(prompt.stable).toContain("不得預設學生一人一機");
     expect(prompt.dynamic).toContain("3–5 人小組");
     expect(prompt.dynamic).toContain("校內低科技替代方案");
+    expect(prompt.dynamic).toContain("沿用既有教案的資料判讀目標");
   });
 
   it("rejects invented success criteria and invalid lesson sequencing", () => {
@@ -506,7 +520,7 @@ describe("learning design project", () => {
 
     expect(promptPackage.target).toBe("gemini_canvas");
     expect(promptPackage.fullPrompt).toContain("第 2 節｜用資料支持判斷");
-    expect(promptPackage.fullPrompt).toContain("地 1c-Ⅴ-1");
+    expect(promptPackage.fullPrompt).toContain("地1c-Ⅴ-1");
     expect(promptPackage.fullPrompt).toContain("success-1");
     expect(promptPackage.fullPrompt).toContain("50");
     expect(promptPackage.fullPrompt).not.toContain("notebooklm.google.com");
@@ -568,8 +582,8 @@ describe("learning design project", () => {
     expect(context?.projectId).toBe(project.id);
     expect(context?.curriculum).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "geography-v-performance-inquiry-1" }),
-        expect.objectContaining({ id: "geography-v-content-climate-5" }),
+        expect.objectContaining({ id: "5730-7406-performance-1c-v-1" }),
+        expect.objectContaining({ id: "5730-7406-content-ia-v-2" }),
       ]),
     );
     expect(context?.successCriteria).toHaveLength(2);
@@ -577,6 +591,20 @@ describe("learning design project", () => {
     expect(context?.questionMaps).toHaveLength(2);
     expect(context?.questionMaps[1].transferDifference).toContain("預算限制");
     expect(context?.evidenceItems).toHaveLength(4);
+    const contextWithReference = buildAssessmentDesignContext({
+      ...project,
+      appliedLessonReference: {
+        learningGoals: ["資料判讀目標"],
+        reusableActivities: ["校園踏查"],
+        assessmentIdeas: [],
+        resources: ["每組一台共用平板"],
+        constraints: [],
+        differentiationSupports: [],
+      },
+    });
+    expect(contextWithReference?.lessonReference?.learningGoals).toEqual([
+      "資料判讀目標",
+    ]);
     expect(
       buildAssessmentDesignContext({
         ...project,
@@ -601,7 +629,7 @@ describe("learning design project", () => {
     );
     expect(prompt.dynamic).toContain("逆向設計專案脈絡");
     expect(prompt.dynamic).toContain("success-1");
-    expect(prompt.dynamic).toContain("地 1c-Ⅴ-1");
+    expect(prompt.dynamic).toContain("地1c-Ⅴ-1");
     expect(prompt.dynamic).toContain("guided_response");
   });
 });

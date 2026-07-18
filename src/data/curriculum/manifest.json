@@ -1,32 +1,212 @@
 {
   "snapshotVersion": "2026-07-18",
   "notebookUrl": "https://notebooklm.google.com/notebook/39674c51-5851-4779-bb87-4cc8f056fcea",
-  "verification": "NotebookLM 分領域雙次檢索；生物第五學習階段另以國家教育研究院正式自然科學領綱交叉確認。",
+  "verification": "以國家教育研究院 108 課綱正式發布 ODT 原檔抽取；代碼、原文與階段由同一原檔的學習表現／學習內容表格交叉驗證。NotebookLM 不作為建置或瀏覽器 runtime 相依。",
+  "excludedConflicts": [
+    {
+      "key": "自然科學|learning_performance|pa-Ⅳ-1",
+      "alternatives": [
+        "能分析歸納、製作圖表、使用資訊及數學等方法，整理資訊或數據。",
+        "能分析歸納、製作圖表、使用資及數學等方法，整理資訊或數據。"
+      ]
+    },
+    {
+      "key": "自然科學|learning_performance|ai-Ⅳ-3",
+      "alternatives": [
+        "透過所學到的科學知識和科學探索的各種方法，解釋自然現象發生的原因，建立科學學習的自信心。",
+        "能將所習得的知識正確的連結到所觀察到的自然現象及實驗數據，並推論出其中的關聯，進而運用習得的知識來解釋自己論點的正確性。"
+      ]
+    },
+    {
+      "key": "自然科學|learning_performance|pa-Ⅴc-1",
+      "alternatives": [
+        "能合理運用思考智能、製作圖表、使用資訊及數學等方法，有效整理資訊或數據。",
+        "能合理運用思考智能、"
+      ]
+    },
+    {
+      "key": "自然科學|learning_performance|pa-Ⅴc-2",
+      "alternatives": [
+        "能運用科學原理、思考智能、數學、統計等方法，從探究所得的資訊或數據，形成解釋、理解、發現新知、獲知因果關係、理解科學相關的社會議題、解決問題或是發現新的問題。並能將自己的探究結果和同學的結果或其他相關的資訊比較對照，相互檢核，確認結果。",
+        "製作圖表、使用資訊及數學等方法，有效整理資訊或數據。"
+      ]
+    },
+    {
+      "key": "自然科學|learning_performance|pc-Ⅴc-2",
+      "alternatives": [
+        "能利用口語、影像（例如：攝影、錄影）、文字與圖案、繪圖或實物、科學名詞、數學公式、模型等，呈現探究之過程、發現或成果；並在保有個資安全與不損及公眾利益下，嘗試以報告或新媒體形式，自主並較廣面性的分享相對嚴謹之探究發現、成果、結論或主張。視需要，並能摘要描述目的、特徵、方法、發現、價值、限制、運用及展望等。",
+        "能運用科學原理、思考智能、數學、統計等方法，從探究所得的資訊或數據，形成解釋、理解、發現新知、獲知因果關係、理解科學相關的社會議題、解決問題或是發現新的問題。並能將自己的探究結果和同學的結果或其他相關的資訊比較對照，相互檢核，確認結果。"
+      ]
+    },
+    {
+      "key": "自然科學|learning_content|Da-Ⅳ-4",
+      "alternatives": [
+        "細胞會進行細胞分裂，染色體在分裂過程中會發生變化。",
+        "細胞會進行細胞分裂，染色體在分裂過程中會發生變化。"
+      ]
+    },
+    {
+      "key": "自然科學|learning_content|Eb-Ⅳ-1",
+      "alternatives": [
+        "力能引發物體的移動或轉動。",
+        "力能引發物體的移動或轉動。"
+      ]
+    },
+    {
+      "key": "自然科學|learning_content|Jd-Ⅳ-2",
+      "alternatives": [
+        "酸鹼強度與 pH 值的關係。",
+        "酸鹼強度與pH值的關係。"
+      ]
+    },
+    {
+      "key": "自然科學|learning_content|Ka-Ⅳ-5",
+      "alternatives": [
+        "耳朵可以分辨不同的聲音，例如：大小、高低及音色，但人耳聽不到超聲波。",
+        "耳朵可以分辨不同的聲音，例如：大小、高低和音色，但人耳聽不到超聲波。"
+      ]
+    },
+    {
+      "key": "自然科學|learning_content|Ma-Ⅳ-3",
+      "alternatives": [
+        "不同的材料對生活及社會的影響。",
+        "季節的變化與人類生活的關係。",
+        "不同的材料對生活及社會的影響 。"
+      ]
+    },
+    {
+      "key": "自然科學|learning_content|INc-Ⅳ-1",
+      "alternatives": [
+        "宇宙間事、物的規模可以分為微觀尺度及巨觀尺度。",
+        "宇宙間事、物的規模可以分為微觀尺度與巨觀尺度。"
+      ]
+    },
+    {
+      "key": "地球科學|learning_content|EHa-Ⅴc-1",
+      "alternatives": [
+        "天文學家以太陽星雲學說來解釋太陽系的起源和形 成。太陽系是由太陽、行星、衛星、小行星和彗星等天體組成。",
+        "天文學家以太陽星雲學說來解釋太陽系的起源和形成。太陽系是由太陽、行星、衛星、小行星和彗星等天體組成。"
+      ]
+    },
+    {
+      "key": "生物|learning_content|BMc-Ⅴa-3",
+      "alternatives": [
+        "可以實際案例，由研究、教育、立法或行政等方面來探討生物多樣性的保育。",
+        "可以實際案例，由研究、教育、立法及行政等方面來探討生物多樣性的保育。"
+      ]
+    },
+    {
+      "key": "生物|learning_content|BNa-Ⅴa-1",
+      "alternatives": [
+        "棲地零碎化造成的邊緣效應對物種多樣性之影響。",
+        "以實例說明棲地零碎化造成的邊緣效應對物種多樣性之影響。"
+      ]
+    },
+    {
+      "key": "生物|learning_content|BNa-Ⅴa-2",
+      "alternatives": [
+        "入侵外來種對物種多樣性之影響。",
+        "以實例說明入侵外來種對物種多樣性之影響。"
+      ]
+    },
+    {
+      "key": "化學|learning_content|CAb-Ⅴa-3",
+      "alternatives": [
+        "液晶的形態與性質。",
+        "液晶的形態與性質"
+      ]
+    },
+    {
+      "key": "化學|learning_content|CJf-Ⅴa-5",
+      "alternatives": [
+        "常見聚合物的結構及製備。",
+        "常見聚合物的結構與製備。"
+      ]
+    },
+    {
+      "key": "數學|learning_content|S-9-13",
+      "alternatives": [
+        "兩半球（出現球心與半徑）、圓柱(瘦高、矮扁)、角柱、角錐、展開圖",
+        "表面積與體積：直角柱、直圓錐、正角錐的展開圖；直角柱、直圓錐、正角錐的表面積；直角柱的體積。"
+      ]
+    },
+    {
+      "key": "數學|learning_content|S-9-5",
+      "alternatives": [
+        "圓形分割圖（說明面積）",
+        "圓弧長與扇形面積：以π表示圓周率；弦、圓弧、弓形的意義；圓弧長公式；扇形面積公式。"
+      ]
+    },
+    {
+      "key": "數學|learning_content|D-7-2",
+      "alternatives": [
+        "統計數據：用平均數、中位數與眾數描述一組資料的特性；使用計算機的「M+」或「Σ」鍵計算平均數。",
+        "處理單一統計量（平均數、中位數、眾數）表達數據，本條目則傳達以盒狀圖描述數據的集中程度。",
+        "計算機"
+      ]
+    },
+    {
+      "key": "英語文|learning_content|Ae-Ⅴ-11",
+      "alternatives": [
+        "故事的背景、人物、事件和結局。",
+        "故事的背景、人物事件和結局。"
+      ]
+    },
+    {
+      "key": "國語文|learning_performance|2-Ⅳ-5",
+      "alternatives": [
+        "視不同情境，進行報告、評論、演說及論辯。",
+        "視不同情境，進行報告、評論、演說及論辯。",
+        "Be-Ⅳ-3 在學習應用方面，以簡報、讀書報告、演講稿、劇本等格式與寫作方法為主。"
+      ]
+    },
+    {
+      "key": "國語文|learning_content|Bc-Ⅴ-1",
+      "alternatives": [
+        "具邏輯、客觀、理性、知識的說明，如人權公約、百科全書、制度演變等。",
+        "具邏輯、客觀、理性、知識的 說明，如人權公約、百科全書、 制度演變等。"
+      ]
+    },
+    {
+      "key": "國語文|learning_content|Ca-Ⅳ-2",
+      "alternatives": [
+        "各類文本中表現科技文明演進、生存環境發展的文化內涵。",
+        "各類文本中表現科技文明演 進、生存環境發展的文化內涵。"
+      ]
+    },
+    {
+      "key": "國語文|learning_content|Cb-Ⅴ-1",
+      "alternatives": [
+        "各類文本中的親屬關係、道德倫理、儀式風俗、典章制度等文化內涵。",
+        "各類文本中的親屬關係、道德 倫理、儀式風俗、典章制度等 文化內涵。"
+      ]
+    }
+  ],
   "sources": [
     {
-      "sourceName": "586246ee96b1863ae84d9e331aceab58.pdf",
+      "sourceName": "https://www.naer.edu.tw/upload/1/16/doc/820/%E5%8D%81%E4%BA%8C%E5%B9%B4%E5%9C%8B%E6%B0%91%E5%9F%BA%E6%9C%AC%E6%95%99%E8%82%B2%E8%AA%B2%E7%A8%8B%E7%B6%B1%E8%A6%81%E5%9C%8B%E6%B0%91%E4%B8%AD%E5%B0%8F%E5%AD%B8%E6%9A%A8%E6%99%AE%E9%80%9A%E5%9E%8B%E9%AB%98%E7%B4%9A%E4%B8%AD%E7%AD%89%E5%AD%B8%E6%A0%A1%E2%94%80%E8%87%AA%E7%84%B6%E7%A7%91%E5%AD%B8%E9%A0%98%E5%9F%9F.odt",
       "sourceDocumentTitle": "十二年國民基本教育課程綱要－自然科學領域",
-      "sourceVersion": "108課綱"
+      "sourceVersion": "108課綱正式發布版"
     },
     {
-      "sourceName": "07e3e438c912840abb3eb5b9431f49a2.pdf",
-      "sourceDocumentTitle": "十二年國民基本教育課程綱要－數學領域",
-      "sourceVersion": "108課綱"
-    },
-    {
-      "sourceName": "7aff19ef0fd73fb140a8931d15df27ef.pdf",
-      "sourceDocumentTitle": "十二年國民基本教育課程綱要－語文領域（國語文）",
-      "sourceVersion": "108課綱"
-    },
-    {
-      "sourceName": "fa8f0c31ec402aeab716067019f19078.pdf",
-      "sourceDocumentTitle": "十二年國民基本教育課程綱要－語文領域（英語文）",
-      "sourceVersion": "108課綱"
-    },
-    {
-      "sourceName": "947c93212ee6bb105846e346696a7526.pdf",
+      "sourceName": "https://www.naer.edu.tw/upload/1/16/doc/819/%E5%8D%81%E4%BA%8C%E5%B9%B4%E5%9C%8B%E6%B0%91%E5%9F%BA%E6%9C%AC%E6%95%99%E8%82%B2%E8%AA%B2%E7%A8%8B%E7%B6%B1%E8%A6%81%E5%9C%8B%E6%B0%91%E4%B8%AD%E5%B0%8F%E5%AD%B8%E6%9A%A8%E6%99%AE%E9%80%9A%E5%9E%8B%E9%AB%98%E7%B4%9A%E4%B8%AD%E7%AD%89%E5%AD%B8%E6%A0%A1%E2%94%80%E7%A4%BE%E6%9C%83%E9%A0%98%E5%9F%9F.odt",
       "sourceDocumentTitle": "十二年國民基本教育課程綱要－社會領域",
-      "sourceVersion": "108課綱"
+      "sourceVersion": "108課綱正式發布版"
+    },
+    {
+      "sourceName": "https://www.naer.edu.tw/upload/1/16/doc/815/%E5%8D%81%E4%BA%8C%E5%B9%B4%E5%9C%8B%E6%B0%91%E5%9F%BA%E6%9C%AC%E6%95%99%E8%82%B2%E8%AA%B2%E7%A8%8B%E7%B6%B1%E8%A6%81%E5%9C%8B%E6%B0%91%E4%B8%AD%E5%B0%8F%E5%AD%B8%E6%9A%A8%E6%99%AE%E9%80%9A%E5%9E%8B%E9%AB%98%E7%B4%9A%E4%B8%AD%E7%AD%89%E5%AD%B8%E6%A0%A1%E2%94%80%E6%95%B8%E5%AD%B8%E9%A0%98%E5%9F%9F.odt",
+      "sourceDocumentTitle": "十二年國民基本教育課程綱要－數學領域",
+      "sourceVersion": "108課綱正式發布版"
+    },
+    {
+      "sourceName": "https://www.naer.edu.tw/upload/1/16/doc/812/%E5%8D%81%E4%BA%8C%E5%B9%B4%E5%9C%8B%E6%B0%91%E5%9F%BA%E6%9C%AC%E6%95%99%E8%82%B2%E8%AA%B2%E7%A8%8B%E7%B6%B1%E8%A6%81%E5%9C%8B%E6%B0%91%E4%B8%AD%E5%B0%8F%E5%AD%B8%E6%9A%A8%E6%99%AE%E9%80%9A%E5%9E%8B%E9%AB%98%E7%B4%9A%E4%B8%AD%E7%AD%89%E5%AD%B8%E6%A0%A1%E8%AA%9E%E6%96%87%E9%A0%98%E5%9F%9F%E2%94%80%E8%8B%B1%E8%AA%9E%E6%96%87.odt",
+      "sourceDocumentTitle": "十二年國民基本教育課程綱要－語文領域（英語文）",
+      "sourceVersion": "108課綱正式發布版"
+    },
+    {
+      "sourceName": "https://www.naer.edu.tw/upload/1/16/doc/806/%E5%8D%81%E4%BA%8C%E5%B9%B4%E5%9C%8B%E6%B0%91%E5%9F%BA%E6%9C%AC%E6%95%99%E8%82%B2%E8%AA%B2%E7%A8%8B%E7%B6%B1%E8%A6%81%E5%9C%8B%E6%B0%91%E4%B8%AD%E5%B0%8F%E5%AD%B8%E6%9A%A8%E6%99%AE%E9%80%9A%E5%9E%8B%E9%AB%98%E7%B4%9A%E4%B8%AD%E7%AD%89%E5%AD%B8%E6%A0%A1%E8%AA%9E%E6%96%87%E9%A0%98%E5%9F%9F-%E5%9C%8B%E8%AA%9E%E6%96%87.odt",
+      "sourceDocumentTitle": "十二年國民基本教育課程綱要－語文領域（國語文）",
+      "sourceVersion": "108課綱正式發布版"
     }
   ]
 }

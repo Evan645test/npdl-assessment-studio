@@ -1,5 +1,6 @@
 import {
   FOUR_ELEMENT_NAMES,
+  type AppliedLessonReference,
   type AssessmentDesignContext,
   type CourseAlignmentResult,
   type CourseIdeationInput,
@@ -440,6 +441,7 @@ export function buildEvidencePlanPrompt(
   input: CourseIdeationInput,
   alignment: CourseAlignmentResult,
   selectedIndicatorId: string,
+  lessonReference?: AppliedLessonReference | null,
 ): GenerationPromptParts {
   const desiredResults = buildDesiredResults(alignment);
   const indicator = getIndicatorById(selectedIndicatorId);
@@ -454,6 +456,13 @@ ${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
     dynamic: `【課程】
 ${JSON.stringify(input, null, 2)}
 
+${lessonReference
+  ? `【教師確認採用的既有教案參考】
+${JSON.stringify(lessonReference, null, 2)}
+只能沿用其中可行的活動、評量構想、資源、限制與差異化支持；不得取代成功指標或受控課綱。
+
+`
+  : ""}
 ${buildTaiwanHighSchoolLabPrompt(input.subject)}
 
 【已確認學習終點】
@@ -819,6 +828,7 @@ export function buildUnitBlueprintPrompt(
   selectedIndicatorId: string,
   evidencePlan: EvidencePlanResult,
   constraints: UnitConstraints,
+  lessonReference?: AppliedLessonReference | null,
 ): GenerationPromptParts {
   const desiredResults = buildDesiredResults(alignment);
   const evidenceForPrompt = {
@@ -837,6 +847,13 @@ ${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
     dynamic: `【課程】
 ${JSON.stringify(input, null, 2)}
 
+${lessonReference
+  ? `【教師確認採用的既有教案參考】
+${JSON.stringify(lessonReference, null, 2)}
+優先在不破壞學習終點與評量證據的前提下沿用，並遵守其中的現場限制。
+
+`
+  : ""}
 ${buildTaiwanHighSchoolLabPrompt(input.subject)}
 
 【學習終點】
@@ -1209,6 +1226,7 @@ export function buildAssessmentDesignContext(
     performanceTask: project.evidencePlan?.performanceTask ?? null,
     questionMaps: project.evidencePlan?.questionMaps ?? [],
     evidenceItems: project.evidencePlan?.evidenceItems ?? [],
+    lessonReference: project.appliedLessonReference ?? null,
   };
 }
 

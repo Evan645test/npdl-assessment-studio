@@ -118,24 +118,73 @@ function sortedCandidates(
     .map(({ entry }) => entry);
 }
 
+export function getCurriculumOptions(
+  input: CourseIdeationInput,
+  additionalEntries: CurriculumEntry[] = [],
+): CurriculumCandidateSet {
+  const stage = stageFromGrade(input.grade);
+  const entries = [...CURRICULUM_ENTRIES, ...additionalEntries].filter(
+    (entry, index, collection) =>
+      entry.stage === stage &&
+      subjectMatches(input.subject, entry) &&
+      collection.findIndex((candidate) => candidate.id === entry.id) === index,
+  );
+  const byCode = (left: CurriculumEntry, right: CurriculumEntry) =>
+    left.subject.localeCompare(right.subject, "zh-Hant") ||
+    left.code.localeCompare(right.code, "zh-Hant", { numeric: true }) ||
+    left.text.localeCompare(right.text, "zh-Hant");
+  return {
+    performances: entries
+      .filter((entry) => entry.kind === "learning_performance")
+      .sort(byCode),
+    contents: entries
+      .filter((entry) => entry.kind === "learning_content")
+      .sort(byCode),
+  };
+}
+
 export function getCurriculumCandidates(
   input: CourseIdeationInput,
   analysis?: KeywordAnalysisResult | null,
   additionalEntries: CurriculumEntry[] = [],
+  selectedIds: { performanceIds?: string[]; contentIds?: string[] } = {},
 ): CurriculumCandidateSet {
+  const options = getCurriculumOptions(input, additionalEntries);
+  const includeSelected = (
+    candidates: CurriculumEntry[],
+    ids: string[] | undefined,
+    pool: CurriculumEntry[],
+  ) => {
+    const selected = new Set(ids ?? []);
+    const output = [...candidates];
+    for (const entry of pool) {
+      if (selected.has(entry.id) && !output.some((item) => item.id === entry.id)) {
+        output.push(entry);
+      }
+    }
+    return output;
+  };
   return {
-    performances: sortedCandidates(
-      "learning_performance",
-      input,
-      analysis,
-      additionalEntries,
-    ).slice(0, 10),
-    contents: sortedCandidates(
-      "learning_content",
-      input,
-      analysis,
-      additionalEntries,
-    ).slice(0, 12),
+    performances: includeSelected(
+      sortedCandidates(
+        "learning_performance",
+        input,
+        analysis,
+        additionalEntries,
+      ).slice(0, 10),
+      selectedIds.performanceIds,
+      options.performances,
+    ),
+    contents: includeSelected(
+      sortedCandidates(
+        "learning_content",
+        input,
+        analysis,
+        additionalEntries,
+      ).slice(0, 12),
+      selectedIds.contentIds,
+      options.contents,
+    ),
   };
 }
 
