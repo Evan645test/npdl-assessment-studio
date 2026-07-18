@@ -13,6 +13,7 @@ import { KEYS, readJson, writeJson } from "@/lib/storage";
 import { t } from "@/locales/zh-Hant";
 import type {
   CourseForm,
+  AssessmentDocument,
   GenerationPhase,
   GenerationProgress,
   Indicator,
@@ -20,6 +21,8 @@ import type {
   RefineTarget,
   SavedQuestion,
 } from "@/types";
+import type { AssessmentDesignContext } from "@/types/course-ideation";
+import { buildAssessmentEvidencePackageMarkdown } from "@/lib/course-assessment";
 import type { ValidationResult } from "@/lib/validate-output";
 import { AssessmentModule } from "./AssessmentModule";
 import { ContextStrip } from "./ContextStrip";
@@ -41,6 +44,9 @@ interface OutputWorkspaceProps {
   highlightKey: string | null;
   bank: SavedQuestion[];
   validation: ValidationResult | null;
+  assessmentDesignContext: AssessmentDesignContext | null;
+  assessmentDocument: AssessmentDocument | null;
+  implementationNotes: string;
   onRefine?: (target: RefineTarget) => void;
   onSaveQuestion: (question: SavedQuestion) => void;
   onOpenAiSettings: () => void;
@@ -216,6 +222,9 @@ export function OutputWorkspace({
   highlightKey,
   bank,
   validation,
+  assessmentDesignContext,
+  assessmentDocument,
+  implementationNotes,
   onRefine,
   onSaveQuestion,
   onOpenAiSettings,
@@ -230,9 +239,21 @@ export function OutputWorkspace({
   const [formsExportRecord, setFormsExportRecord] = useState<GoogleFormsExportRecord | null>(null);
   useEffect(() => {
     const records = readJson<Record<string, GoogleFormsExportRecord>>(KEYS.googleFormsExports, {});
-    setFormsExportRecord(records[formsFingerprint] ?? null);
+    const preFingerprint = assessmentExportFingerprint(
+      form,
+      indicatorName,
+      modules[1] ?? "",
+      "",
+    );
+    setFormsExportRecord(
+      records[formsFingerprint] ??
+        Object.values(records).find(
+          (record) => record.preFingerprint === preFingerprint,
+        ) ??
+        null,
+    );
     setFormsExportStatus(null);
-  }, [formsFingerprint]);
+  }, [form, formsFingerprint, indicatorName, modules]);
 
   const persistFormsRecord = (record: GoogleFormsExportRecord) => {
     const records = readJson<Record<string, GoogleFormsExportRecord>>(KEYS.googleFormsExports, {});
@@ -267,9 +288,11 @@ export function OutputWorkspace({
     : invalidQ4Targets.has("post.q4")
       ? "課後遷移 Q4 未通過品質檢查，請重新生成評量。"
       : null;
-  const formsExportIssue = validationQ4Issue ?? (modules[1] && modules[2]
-    ? getGoogleFormsExportIssue(modules[1], modules[2])
-    : null);
+  const formsExportIssue =
+    validationQ4Issue ??
+    (modules[1]
+      ? getGoogleFormsExportIssue(modules[1], modules[2] ?? "")
+      : "尚未產生課前診斷。");
   const googleClientIdIssue = getGoogleOAuthClientIdIssue(googleClientId);
 
   const handleExportGoogleForm = async () => {
@@ -282,7 +305,11 @@ export function OutputWorkspace({
       return;
     }
     setFormsExporting(true);
-    setFormsExportStatus("正在登入 Google，授權後會依序建立課前與課後兩份問卷。");
+    setFormsExportStatus(
+      modules[2]
+        ? "正在登入 Google，授權後會依序建立課前與課後兩份問卷。"
+        : "正在登入 Google，授權後會建立課前診斷問卷。",
+    );
     try {
       const result = await createGoogleFormsFromAssessment({
         clientId: googleClientId,
@@ -294,15 +321,59 @@ export function OutputWorkspace({
         onProgress: persistFormsRecord,
       });
       persistFormsRecord(result);
-      const complete = [result.pre, result.post].filter(isGoogleFormExportEntryComplete).length;
-      setFormsExportStatus(complete === 2
-        ? "課前與課後問卷均已建立。"
+      const expected = modules[2] ? 2 : 1;
+      const complete = [result.pre, result.post]
+        .slice(0, expected)
+        .filter(isGoogleFormExportEntryComplete).length;
+      setFormsExportStatus(complete === expected
+        ? expected === 2
+          ? "課前與課後問卷均已建立。"
+          : "課前診斷問卷已建立；課後評量完成後可再建立課後問卷。"
         : `已完成 ${complete} 份；未完成的問卷可按同一按鈕重試，已完成者不會重建。`);
     } catch (error) {
       setFormsExportStatus(error instanceof Error ? error.message : "Google 問卷建立失敗。");
     } finally {
       setFormsExporting(false);
     }
+  };
+  const evidencePackageMarkdown =
+    assessmentDesignContext && assessmentDocument
+      ? buildAssessmentEvidencePackageMarkdown({
+          context: assessmentDesignContext,
+          document: assessmentDocument,
+          form,
+          implementationNotes,
+        })
+      : null;
+
+  const downloadEvidencePackage = () => {
+    if (!evidencePackageMarkdown) return;
+    const blob = new Blob([evidencePackageMarkdown], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `NPDL-${form.activityName}-完整評量證據包.md`.replace(
+      /[\\/:*?"<>|]/g,
+      "-",
+    );
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const printEvidencePackage = () => {
+    if (!evidencePackageMarkdown) return;
+    const escaped = evidencePackageMarkdown
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    if (!popup) return;
+    popup.document.write(`<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>NPDL 完整評量證據包</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:32px;color:#18181b}pre{white-space:pre-wrap;font:14px/1.75 inherit}@media print{body{margin:16mm}}</style></head><body><pre>${escaped}</pre><script>window.addEventListener("load",()=>window.print())</script></body></html>`);
+    popup.document.close();
   };
 
   return (
@@ -356,13 +427,15 @@ export function OutputWorkspace({
                 這是舊版草稿，仍可查看、收藏與匯出；因缺少完整結構化資料，AI 微調已停用。請重新生成評量後再使用微調。
               </p>
             )}
-            {modules[1] && modules[2] && (
+            {modules[1] && (
               <div className="mb-4 rounded-xl border border-[#dfe8e2] bg-white p-3 shadow-sm shadow-emerald-950/5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-black text-zinc-900">Google 問卷匯出</p>
                     <p className="mt-1 text-xs font-bold text-zinc-500">
-                      將課前診斷與課後遷移轉成 Google 表單；Q1–Q3 與 Q4 都依「概念理解、行動應用、生活遷移」排列，方便後續整批判讀。
+                      {modules[2]
+                        ? "將課前診斷與課後遷移分別轉成 Google 表單；只輸出 Q1–Q4。"
+                        : "課程端完整前測已可先轉成 Google 表單；課後完成後再建立第二份問卷。"}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
@@ -384,12 +457,24 @@ export function OutputWorkspace({
                         ? "建立中..."
                         : googleClientIdIssue
                           ? "設定 Google Forms"
-                        : isGoogleFormExportEntryComplete(formsExportRecord?.pre)
-                          && isGoogleFormExportEntryComplete(formsExportRecord?.post)
-                          ? "兩份問卷已建立"
-                          : formsExportRecord?.pre || formsExportRecord?.post
-                            ? "重試未完成問卷"
-                            : "登入 Google 並建立課前／課後問卷"}
+                        : modules[2]
+                          ? isGoogleFormExportEntryComplete(
+                                formsExportRecord?.pre,
+                              ) &&
+                              isGoogleFormExportEntryComplete(
+                                formsExportRecord?.post,
+                              )
+                            ? "兩份問卷已建立"
+                            : formsExportRecord?.pre || formsExportRecord?.post
+                              ? "重試未完成問卷"
+                              : "登入 Google 並建立課前／課後問卷"
+                          : isGoogleFormExportEntryComplete(
+                                formsExportRecord?.pre,
+                              )
+                            ? "課前問卷已建立"
+                            : formsExportRecord?.pre
+                              ? "重試課前問卷"
+                              : "登入 Google 並建立課前問卷"}
                     </button>
                   </div>
                 </div>
@@ -445,6 +530,36 @@ export function OutputWorkspace({
                 )}
               </div>
             )}
+            {evidencePackageMarkdown && (
+              <div className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-black text-cyan-950">
+                      完整課程與評量證據包
+                    </p>
+                    <p className="mt-1 text-xs font-bold text-cyan-800">
+                      包含課綱、學習終點、真實任務、四級規準、Q1–Q4 對齊表、課程敘述語及課前／課後題組。
+                    </p>
+                  </div>
+                  <div className="grid shrink-0 grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={downloadEvidencePackage}
+                      className="min-h-11 rounded-xl border border-cyan-300 bg-white px-4 text-xs font-black text-cyan-950 hover:bg-cyan-100"
+                    >
+                      下載 Markdown
+                    </button>
+                    <button
+                      type="button"
+                      onClick={printEvidencePackage}
+                      className="min-h-11 rounded-xl bg-cyan-900 px-4 text-xs font-black text-white hover:bg-cyan-950"
+                    >
+                      列印／另存 PDF
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             {activeTab === 0 && modules[0] && (
               <NarrativeModule
                 content={modules[0]}
@@ -481,6 +596,18 @@ export function OutputWorkspace({
                 onSaveQuestion={onSaveQuestion}
               />
             )}
+            {activeTab === 2 &&
+              !modules[2] &&
+              assessmentDesignContext?.courseAssessmentSeed && (
+                <div className="rounded-xl border border-dashed border-cyan-300 bg-cyan-50 p-8 text-center">
+                  <p className="text-base font-black text-cyan-950">
+                    課後評量尚未產生
+                  </p>
+                  <p className="mt-2 text-sm font-bold leading-7 text-cyan-800">
+                    課程敘述語與課前 Q1–Q4 已由課程端唯讀帶入。請在上方補充實際教學差異（可留空），再按「分析課程與前測，產生課後評量」。
+                  </p>
+                </div>
+              )}
           </div>
         )}
       </div>

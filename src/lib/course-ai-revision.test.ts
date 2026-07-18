@@ -4,9 +4,12 @@ import {
   courseCardRevisionKey,
   getCourseCardRevisionSchema,
   parseCourseCardRevisionPatch,
+  replaceCourseCardValue,
 } from "@/lib/course-ai-revision";
+import { TEST_ASSESSMENT_DOCUMENT } from "@/test/assessment-fixture";
 import type {
   CourseAlignmentResult,
+  CourseAssessmentSeedV1,
   CourseIdeationInput,
 } from "@/types/course-ideation";
 
@@ -147,5 +150,33 @@ describe("course card AI revision", () => {
         parent: alignment,
       }),
     ).toThrow("至少輸入 4 個字");
+  });
+
+  it("replaces exactly one narrative level and marks the seed teacher-edited", () => {
+    const seed: CourseAssessmentSeedV1 = {
+      version: 1,
+      generatedAt: 1,
+      model: "gemini-2.5-flash",
+      sourceFingerprint: "course-assessment-v1-test",
+      narrative: structuredClone(TEST_ASSESSMENT_DOCUMENT.narrative),
+      pre: structuredClone(TEST_ASSESSMENT_DOCUMENT.pre),
+      preMappings: [],
+      plannedPostMappings: [],
+      mode: "ai_generated",
+    };
+    const replacement = {
+      ...seed.narrative.developing,
+      classroomBehavior: "能比較兩項資料並清楚說明判斷依據。",
+    };
+    const revised = replaceCourseCardValue(
+      seed,
+      { kind: "course_narrative_level", level: "developing" },
+      replacement,
+    ) as CourseAssessmentSeedV1;
+
+    expect(revised.narrative.developing).toEqual(replacement);
+    expect(revised.narrative.emerging).toEqual(seed.narrative.emerging);
+    expect(revised.pre).toEqual(seed.pre);
+    expect(revised.mode).toBe("teacher_edited");
   });
 });

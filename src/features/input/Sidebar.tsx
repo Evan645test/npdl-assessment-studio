@@ -19,6 +19,7 @@ interface SidebarProps {
   ideationNotice: string | null;
   onIdeate: () => void;
   onGenerate: () => void;
+  generateLabel?: string;
   onJumpStep: (step: number) => void;
   mobileStep: number;
   setMobileStep: (step: number) => void;
@@ -141,6 +142,7 @@ export function Sidebar({
   ideationNotice,
   onIdeate,
   onGenerate,
+  generateLabel,
   onJumpStep,
   mobileStep,
   setMobileStep,
@@ -593,7 +595,7 @@ export function Sidebar({
           className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#173f36] text-sm font-black text-white shadow-lg shadow-emerald-950/15 hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          {generating ? t.generating : t.generate}
+          {generating ? t.generating : generateLabel ?? t.generate}
         </button>
       </div>
     </div>

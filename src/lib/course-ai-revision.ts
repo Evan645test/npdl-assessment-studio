@@ -1,6 +1,7 @@
 import type { GenerationPromptParts } from "@/lib/ai/client";
 import type {
   CourseAlignmentResult,
+  CourseAssessmentSeedV1,
   CourseIdeationInput,
   DesiredResults,
   EvidencePlanResult,
@@ -10,6 +11,7 @@ import type {
   UnitBlueprintResult,
   UnitConstraints,
 } from "@/types/course-ideation";
+import type { NarrativeLevelDocument } from "@/types";
 
 export type CourseCardRevisionTarget =
   | { kind: "keyword_summary" }
@@ -37,6 +39,10 @@ export type CourseCardRevisionTarget =
     }
   | { kind: "evidence_item"; evidenceId: string }
   | { kind: "rubric"; criterionId: string }
+  | {
+      kind: "course_narrative_level";
+      level: "evidenceLimited" | "emerging" | "developing" | "mastering";
+    }
   | { kind: "unit_arc" }
   | { kind: "lesson"; lessonId: string };
 
@@ -44,6 +50,7 @@ export type CourseRevisionParent =
   | KeywordAnalysisResult
   | CourseAlignmentResult
   | EvidencePlanResult
+  | CourseAssessmentSeedV1
   | UnitBlueprintResult;
 
 export interface CourseCardRevisionContext {
@@ -151,6 +158,16 @@ const RUBRIC_SCHEMA = strictObject({
     mastering: stringSchema,
   }),
 });
+const NARRATIVE_LEVEL_SCHEMA = strictObject({
+  classroomBehavior: stringSchema,
+  verbalExpression: stringSchema,
+  lifeProjection: stringSchema,
+  motivationMonologue: stringSchema,
+  emotionalPain: stringSchema,
+  keyActivity: stringSchema,
+  scaffold: stringSchema,
+  teacherDialogue: stringSchema,
+});
 const LESSON_SCHEMA = strictObject({
   id: stringSchema,
   lessonNumber: { type: "integer", minimum: 1 },
@@ -211,6 +228,8 @@ function targetValueSchema(target: CourseCardRevisionTarget): unknown {
       return EVIDENCE_ITEM_SCHEMA;
     case "rubric":
       return RUBRIC_SCHEMA;
+    case "course_narrative_level":
+      return NARRATIVE_LEVEL_SCHEMA;
     case "lesson":
       return LESSON_SCHEMA;
   }
@@ -239,6 +258,8 @@ export function courseCardRevisionKey(
       return `${target.kind}-${target.evidenceId}`;
     case "rubric":
       return `${target.kind}-${target.criterionId}`;
+    case "course_narrative_level":
+      return `${target.kind}-${target.level}`;
     case "lesson":
       return `${target.kind}-${target.lessonId}`;
     default:
@@ -284,6 +305,15 @@ export function courseCardRevisionLabel(
       return `證據 ${target.evidenceId}`;
     case "rubric":
       return `規準 ${target.criterionId}`;
+    case "course_narrative_level":
+      return `課程敘述語 ${
+        {
+          evidenceLimited: "證據有限",
+          emerging: "萌芽",
+          developing: "發展",
+          mastering: "精熟",
+        }[target.level]
+      }`;
     case "unit_arc":
       return "單元弧線";
     case "lesson":
@@ -380,7 +410,8 @@ export function buildCourseCardRevisionPrompt(
       context.target.kind === "question_context" ||
       context.target.kind === "question_purpose" ||
       context.target.kind === "evidence_item" ||
-      context.target.kind === "rubric"
+      context.target.kind === "rubric" ||
+      context.target.kind === "course_narrative_level"
         ? context.desiredResults
         : undefined,
     unitConstraints:
@@ -523,6 +554,8 @@ export function getCourseCardValue(
       return (parent as EvidencePlanResult).rubric.find(
         (item) => item.criterionId === target.criterionId,
       );
+    case "course_narrative_level":
+      return (parent as CourseAssessmentSeedV1).narrative[target.level];
     case "unit_arc":
       return (parent as UnitBlueprintResult).unitArc;
     case "lesson":
@@ -648,6 +681,11 @@ export function replaceCourseCardValue(
       }
       break;
     }
+    case "course_narrative_level":
+      (clone as CourseAssessmentSeedV1).narrative[target.level] =
+        value as NarrativeLevelDocument;
+      (clone as CourseAssessmentSeedV1).mode = "teacher_edited";
+      break;
     case "unit_arc":
       (clone as UnitBlueprintResult).unitArc = value as string;
       break;

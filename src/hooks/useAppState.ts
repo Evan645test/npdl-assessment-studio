@@ -3,6 +3,7 @@ import { DEFAULT_FORM } from "@/data/constants";
 import { getIndicatorById } from "@/data/indicators";
 import {
   generateAssessment,
+  generatePostAssessment,
   type AssessmentRepairStatus,
 } from "@/lib/assessment-generation";
 import {
@@ -57,6 +58,10 @@ import {
   SHARED_AI_MODEL_OPTIONS,
 } from "@/hooks/useSharedAiSettings";
 import type { SharedAiSettings } from "@/types/studio";
+import {
+  isCourseAssessmentSeedCurrent,
+  renderCourseAssessmentSeedMarkdown,
+} from "@/lib/course-assessment";
 
 const MANAGED_GOOGLE_OAUTH_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID?.trim() ?? "";
@@ -122,6 +127,9 @@ export function useAppState(options: UseAppStateOptions = {}) {
   const [repairStatus, setRepairStatus] = useState<AssessmentRepairStatus | null>(null);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
+  const [implementationNotes, setImplementationNotes] = useState("");
+  const [pendingProjectUpdate, setPendingProjectUpdate] =
+    useState<LearningDesignProjectV1 | null>(null);
 
   const indicator = useMemo(
     () => (form.source === "資料庫" ? getIndicatorById(form.indicatorId) ?? null : null),
@@ -170,17 +178,53 @@ export function useAppState(options: UseAppStateOptions = {}) {
       if (!designContext) {
         throw new Error("請先確認學習終點與評量證據，再帶入評量設計。");
       }
+      if (
+        !isCourseAssessmentSeedCurrent(
+          designContext.courseAssessmentSeed,
+          designContext.assessmentSeedSourceFingerprint ??
+            designContext.sourceFingerprint,
+        )
+      ) {
+        throw new Error(
+          "課程敘述語或課前評量尚未建立，或已因上游修改而過期。",
+        );
+      }
+      if (
+        !project.unitBlueprint ||
+        !project.unitBlueprintConfirmedAt ||
+        project.alignmentAudit.unitBlueprint !== "current"
+      ) {
+        throw new Error("請先完成最新的單元節次藍圖，再帶入評量設計。");
+      }
       const handoff = buildCourseIdeationHandoff(
         project.input,
         project.alignment,
         project.selectedIndicatorId,
         project.id,
       );
+      const nextForm = courseIdeationHandoffToForm(handoff);
+      if (
+        assessmentDocument &&
+        assessmentDesignContext?.projectId === project.id &&
+        assessmentDesignContext.sourceFingerprint !==
+          designContext.sourceFingerprint
+      ) {
+        setPendingProjectUpdate(project);
+        setHandoffNotice(
+          "課程端已有更新；目前課後評量尚未覆蓋。請確認後再套用新版課程資料。",
+        );
+        return;
+      }
       writeJson(KEYS.learningDesignProject, project);
-      setForm(courseIdeationHandoffToForm(handoff));
+      setForm(nextForm);
       setAssessmentDesignContext(designContext);
       setAssessmentDocument(null);
-      setGeneratedMarkdown(null);
+      setGeneratedMarkdown(
+        renderCourseAssessmentSeedMarkdown(
+          designContext.courseAssessmentSeed,
+          nextForm,
+        ),
+      );
       setValidation(null);
       setRepairStatus(null);
       setGenerationProgress(null);
@@ -193,14 +237,64 @@ export function useAppState(options: UseAppStateOptions = {}) {
       setPdfName("");
       setIdeation(null);
       setIdeationNotice(null);
+      setImplementationNotes("");
+      setPendingProjectUpdate(null);
       setDraftPrompt(null);
-      setHandoffNotice("已帶入課程設計專案，可直接產生對齊的正式評量。");
+      setHandoffNotice(
+        "已唯讀帶入課程敘述語與完整課前評量；可直接分析課程與前測，產生課後評量。",
+      );
       localStorage.removeItem(KEYS.draftDismissed);
       removeStorage(KEYS.courseIdeationHandoff);
       setDraftStorageReady(true);
     },
-    [],
+    [assessmentDesignContext, assessmentDocument],
   );
+
+  const acceptPendingProjectUpdate = useCallback(() => {
+    if (!pendingProjectUpdate || !pendingProjectUpdate.alignment) return;
+    const designContext = buildAssessmentDesignContext(pendingProjectUpdate);
+    if (
+      !designContext ||
+      !isCourseAssessmentSeedCurrent(
+        designContext.courseAssessmentSeed,
+        designContext.assessmentSeedSourceFingerprint ??
+          designContext.sourceFingerprint,
+      )
+    ) {
+      setError("更新後的課程端前測資料不完整或已過期。");
+      return;
+    }
+    const handoff = buildCourseIdeationHandoff(
+      pendingProjectUpdate.input,
+      pendingProjectUpdate.alignment,
+      pendingProjectUpdate.selectedIndicatorId,
+      pendingProjectUpdate.id,
+    );
+    const nextForm = courseIdeationHandoffToForm(handoff);
+    writeJson(KEYS.learningDesignProject, pendingProjectUpdate);
+    setForm(nextForm);
+    setAssessmentDesignContext(designContext);
+    setAssessmentDocument(null);
+    setGeneratedMarkdown(
+      renderCourseAssessmentSeedMarkdown(
+        designContext.courseAssessmentSeed,
+        nextForm,
+      ),
+    );
+    setValidation(null);
+    setRepairStatus(null);
+    setActiveModuleTab(0);
+    setImplementationNotes("");
+    setPendingProjectUpdate(null);
+    setHandoffNotice(
+      "已套用新版課程資料；原課後評量已清除，請重新產生。",
+    );
+  }, [pendingProjectUpdate]);
+
+  const keepCurrentAssessment = useCallback(() => {
+    setPendingProjectUpdate(null);
+    setHandoffNotice("已保留目前課後評量；課程端更新尚未套用。");
+  }, []);
 
   useEffect(() => {
     if (!draftStorageReady) return;
@@ -209,6 +303,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
       form,
       assessmentDocument,
       assessmentDesignContext,
+      implementationNotes,
       legacyMarkdown: assessmentDocument ? undefined : generatedMarkdown,
       activeModuleTab,
       savedAt: Date.now(),
@@ -218,6 +313,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
     form,
     assessmentDocument,
     assessmentDesignContext,
+    implementationNotes,
     activeModuleTab,
     draftStorageReady,
   ]);
@@ -228,7 +324,9 @@ export function useAppState(options: UseAppStateOptions = {}) {
       null,
     );
     if (isValidCourseIdeationHandoff(handoff)) {
-      setForm(courseIdeationHandoffToForm(handoff));
+      const nextForm = courseIdeationHandoffToForm(handoff);
+      setForm(nextForm);
+      let importedCurrentSeed = false;
       if (handoff.version === 2) {
         const project = readJson<LearningDesignProjectV1 | null>(
           KEYS.learningDesignProject,
@@ -239,12 +337,34 @@ export function useAppState(options: UseAppStateOptions = {}) {
           project.id === handoff.projectId
         ) {
           const context = buildAssessmentDesignContext(project);
-          if (context) setAssessmentDesignContext(context);
+          if (context) {
+            setAssessmentDesignContext(context);
+            if (
+              isCourseAssessmentSeedCurrent(
+                context.courseAssessmentSeed,
+                context.assessmentSeedSourceFingerprint ??
+                  context.sourceFingerprint,
+              )
+            ) {
+              setAssessmentDocument(null);
+              setGeneratedMarkdown(
+                renderCourseAssessmentSeedMarkdown(
+                  context.courseAssessmentSeed,
+                  nextForm,
+                ),
+              );
+              importedCurrentSeed = true;
+            }
+          }
         }
       }
       setMobileStep(2);
       setDraftPrompt(null);
-      setHandoffNotice("已帶入課程發想結果，請確認推薦子向度後再生成評量。");
+      setHandoffNotice(
+        importedCurrentSeed
+          ? "已唯讀帶入課程敘述語與完整課前評量；可直接分析課程與前測，產生課後評量。"
+          : "已帶入課程發想結果，請確認推薦子向度後再生成評量。",
+      );
       removeStorage(KEYS.courseIdeationHandoff);
       setDraftStorageReady(true);
       return;
@@ -291,6 +411,11 @@ export function useAppState(options: UseAppStateOptions = {}) {
         ? draftPrompt.assessmentDesignContext ?? null
         : null,
     );
+    setImplementationNotes(
+      "implementationNotes" in draftPrompt
+        ? draftPrompt.implementationNotes ?? ""
+        : "",
+    );
     setAssessmentDocument(restoredDocument);
     setGeneratedMarkdown(normalizedMarkdown);
     setValidation(
@@ -333,22 +458,36 @@ export function useAppState(options: UseAppStateOptions = {}) {
     const startedAt = performance.now();
     let firstDeltaMs: number | null = null;
     try {
-      const result = await generateAssessment({
-        form,
-        indicator,
-        pdfExcerpt: pdfExcerpt || undefined,
-        model: settings.model,
-        geminiKey: settings.geminiKey,
-        openaiKey: settings.openaiKey,
-        xaiKey: settings.xaiKey,
-        designContext: assessmentDesignContext,
-        onProgress: (progress) => {
-          if (progress.receivedChars > 0 && firstDeltaMs === null) {
-            firstDeltaMs = performance.now() - startedAt;
-          }
-          setGenerationProgress(progress);
-        },
-      });
+      const progress = (next: GenerationProgress) => {
+        if (next.receivedChars > 0 && firstDeltaMs === null) {
+          firstDeltaMs = performance.now() - startedAt;
+        }
+        setGenerationProgress(next);
+      };
+      const result =
+        assessmentDesignContext?.courseAssessmentSeed
+          ? await generatePostAssessment({
+              form,
+              indicator,
+              model: settings.model,
+              geminiKey: settings.geminiKey,
+              openaiKey: settings.openaiKey,
+              xaiKey: settings.xaiKey,
+              designContext: assessmentDesignContext,
+              implementationNotes,
+              onProgress: progress,
+            })
+          : await generateAssessment({
+              form,
+              indicator,
+              pdfExcerpt: pdfExcerpt || undefined,
+              model: settings.model,
+              geminiKey: settings.geminiKey,
+              openaiKey: settings.openaiKey,
+              xaiKey: settings.xaiKey,
+              designContext: assessmentDesignContext,
+              onProgress: progress,
+            });
 
       setValidation(result.validation);
       setRepairStatus(result.repairStatus);
@@ -402,6 +541,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
     pdfExcerpt,
     settings,
     assessmentDesignContext,
+    implementationNotes,
     options.onOpenAiSettings,
   ]);
 
@@ -468,10 +608,24 @@ export function useAppState(options: UseAppStateOptions = {}) {
       if (refineTarget.type === "question" && activeModuleTab === 0) {
         throw new Error("無法判斷題目所屬模組，請切換至課前或課後分頁後再微調。");
       }
+      if (
+        assessmentDesignContext?.courseAssessmentSeed &&
+        !target.startsWith("post.")
+      ) {
+        throw new Error(
+          "課程敘述語與課前評量由課程端管理；請回課程設計工作區修改。",
+        );
+      }
       const targets = [target];
       const source = selectAssessmentPatchSource(assessmentDocument, targets);
       const raw = await generateContent(
-        buildStructuredRefinePrompt(source, target, refineInstruction.trim(), form),
+        buildStructuredRefinePrompt(
+          source,
+          target,
+          refineInstruction.trim(),
+          form,
+          assessmentDesignContext,
+        ),
         settings.model,
         settings.geminiKey,
         settings.openaiKey,
@@ -500,7 +654,15 @@ export function useAppState(options: UseAppStateOptions = {}) {
     } finally {
       setRefining(false);
     }
-  }, [refineTarget, assessmentDocument, refineInstruction, activeModuleTab, settings, form]);
+  }, [
+    refineTarget,
+    assessmentDocument,
+    refineInstruction,
+    activeModuleTab,
+    settings,
+    form,
+    assessmentDesignContext,
+  ]);
 
   const testConnection = useCallback(async () => {
     setTestingConnection(true);
@@ -546,6 +708,12 @@ export function useAppState(options: UseAppStateOptions = {}) {
     generatedMarkdown,
     assessmentDocument,
     canRefine: Boolean(assessmentDocument),
+    assessmentDesignContext,
+    courseAlignedMode: Boolean(
+      assessmentDesignContext?.courseAssessmentSeed,
+    ),
+    implementationNotes,
+    setImplementationNotes,
     modules,
     activeModuleTab,
     setActiveModuleTab,
@@ -603,6 +771,9 @@ export function useAppState(options: UseAppStateOptions = {}) {
     appendKeyword,
     selectedModelProvider,
     handoffNotice,
+    pendingProjectUpdate,
+    acceptPendingProjectUpdate,
+    keepCurrentAssessment,
     dismissHandoffNotice: () => setHandoffNotice(null),
     applyLearningDesignProject,
   };

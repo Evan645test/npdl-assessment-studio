@@ -3,6 +3,7 @@ import {
   type AppliedLessonReference,
   type AssessmentDesignContext,
   type CourseAlignmentResult,
+  type CourseAssessmentSeedV1,
   type CourseIdeationInput,
   type DesiredResults,
   type EvidenceItem,
@@ -26,6 +27,10 @@ import {
   buildTaiwanHighSchoolLabPrompt,
   TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT,
 } from "@/lib/taiwan-high-school-context";
+import {
+  buildAssessmentDesignSourceFingerprint,
+  buildCourseAssessmentSourceFingerprint,
+} from "@/lib/course-assessment";
 
 const MAX_TEXT_LENGTH = 800;
 const OUTCOME_IDS = [
@@ -829,6 +834,7 @@ export function buildUnitBlueprintPrompt(
   evidencePlan: EvidencePlanResult,
   constraints: UnitConstraints,
   lessonReference?: AppliedLessonReference | null,
+  courseAssessmentSeed?: CourseAssessmentSeedV1 | null,
 ): GenerationPromptParts {
   const desiredResults = buildDesiredResults(alignment);
   const evidenceForPrompt = {
@@ -868,6 +874,20 @@ ${JSON.stringify(alignment.fourElements, null, 2)}
 【評量證據】
 ${JSON.stringify(evidenceForPrompt, null, 2)}
 
+${courseAssessmentSeed
+  ? `【已確認的課前評量】
+${JSON.stringify(
+  {
+    scenarioBlueprint: courseAssessmentSeed.pre.scenarioBlueprint,
+    preMappings: courseAssessmentSeed.preMappings,
+  },
+  null,
+  2,
+)}
+第一節必須能承接這份課前診斷留下的證據。
+
+`
+  : ""}
 【課程限制】
 ${JSON.stringify(constraints, null, 2)}
 
@@ -1167,6 +1187,7 @@ export function buildUnitBlueprintRepairPrompt(
   constraints: UnitConstraints,
   invalidRaw: string,
   validationError: string,
+  courseAssessmentSeed?: CourseAssessmentSeedV1 | null,
 ): GenerationPromptParts {
   const base = buildUnitBlueprintPrompt(
     input,
@@ -1174,6 +1195,8 @@ export function buildUnitBlueprintRepairPrompt(
     selectedIndicatorId,
     evidencePlan,
     constraints,
+    undefined,
+    courseAssessmentSeed,
   );
   return {
     stable: `${base.stable}
@@ -1195,6 +1218,7 @@ export function buildAssessmentDesignContext(
 ): AssessmentDesignContext | null {
   if (
     !project.desiredResults ||
+    !project.evidencePlan ||
     !project.alignment ||
     !project.desiredResultsConfirmedAt ||
     !project.evidencePlanConfirmedAt ||
@@ -1215,17 +1239,34 @@ export function buildAssessmentDesignContext(
       text: entry.text,
       kind: entry.kind,
     }));
+  const assessmentSeedSourceFingerprint =
+    buildCourseAssessmentSourceFingerprint({
+      course: project.input,
+      selectedIndicatorId: project.selectedIndicatorId,
+      desiredResults: project.desiredResults,
+      evidencePlan: project.evidencePlan,
+    });
   return {
     projectId: project.id,
+    sourceUpdatedAt: project.updatedAt,
+    sourceFingerprint: buildAssessmentDesignSourceFingerprint({
+      assessmentSeedSourceFingerprint,
+      unitBlueprint: project.unitBlueprint ?? null,
+    }),
+    assessmentSeedSourceFingerprint,
     curriculum,
     transferGoals: project.desiredResults.transferGoals,
     enduringUnderstandings: project.desiredResults.enduringUnderstandings,
     essentialQuestions: project.desiredResults.essentialQuestions,
     outcomes: project.desiredResults.outcomes,
     successCriteria: project.desiredResults.successCriteria,
+    selectedIndicatorId: project.selectedIndicatorId,
     performanceTask: project.evidencePlan?.performanceTask ?? null,
     questionMaps: project.evidencePlan?.questionMaps ?? [],
     evidenceItems: project.evidencePlan?.evidenceItems ?? [],
+    academicRubric: project.evidencePlan?.rubric ?? [],
+    unitBlueprint: project.unitBlueprint ?? null,
+    courseAssessmentSeed: project.courseAssessmentSeed ?? null,
     lessonReference: project.appliedLessonReference ?? null,
   };
 }

@@ -457,19 +457,30 @@ ${renderGuidedQ4Markdown(module.q4, module.scenarioBlueprint, type, form)}
 ${clean(module.statistics)}`;
 }
 
+export function renderNarrativeMarkdown(narrative: NarrativeDocument): string {
+  return `## 課程敘述語
+
+${renderNarrativeLevel("證據有限", narrative.evidenceLimited)}
+
+${renderNarrativeLevel("萌芽", narrative.emerging)}
+
+${renderNarrativeLevel("發展", narrative.developing)}
+
+${renderNarrativeLevel("精熟", narrative.mastering)}`;
+}
+
+export function renderAssessmentModuleMarkdown(
+  module: AssessmentModuleDocument,
+  type: "pre" | "post",
+  form: CourseForm,
+): string {
+  return renderModule(module, type, form);
+}
+
 export function renderAssessmentMarkdown(document: AssessmentDocument, form: CourseForm): string {
   const normalizedDocument = normalizeAssessmentQuestionStems(document);
-  const narrative = `## 課程敘述語
-
-${renderNarrativeLevel("證據有限", normalizedDocument.narrative.evidenceLimited)}
-
-${renderNarrativeLevel("萌芽", normalizedDocument.narrative.emerging)}
-
-${renderNarrativeLevel("發展", normalizedDocument.narrative.developing)}
-
-${renderNarrativeLevel("精熟", normalizedDocument.narrative.mastering)}`;
   return [
-    narrative,
+    renderNarrativeMarkdown(normalizedDocument.narrative),
     renderModule(normalizedDocument.pre, "pre", form),
     renderModule(normalizedDocument.post, "post", form),
   ].join("\n\n");

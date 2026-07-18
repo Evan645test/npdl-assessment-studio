@@ -224,6 +224,139 @@ const revisedPerformanceTask = {
   ...evidencePlan.performanceTask,
   product: "以校內既有簡報設備呈現的氣候調適提案與紙本資料附件",
 };
+const assessmentNarrativeLevel = (level) => ({
+  classroomBehavior: `${level}學生會檢查校園氣候資料，並說明採用的判斷依據。`,
+  verbalExpression: "我會先比較資料，再決定哪些證據支持目前的主張。",
+  lifeProjection: "面對生活中的氣候風險時，能查看資料與限制再判斷。",
+  motivationMonologue: "我想知道自己的倡議是否有可靠證據，而不是只憑直覺。",
+  emotionalPain: "當資料互相矛盾時容易猶豫，需要清楚的比較步驟。",
+  keyActivity: "用兩筆不同資料完成證據排序，寫出選擇與一項限制。",
+  scaffold: "使用主張、證據、理由、限制四欄檢核表。",
+  teacherDialogue: "哪一筆資料最能支持你的判斷，還缺什麼才能更確定？",
+});
+const assessmentQuestion = (stem, focus) => ({
+  stem,
+  options: [
+    { text: "只依第一印象決定", rationale: `只憑直覺，沒有檢查${focus}證據` },
+    { text: "查看單一資料後決定", rationale: "開始引用資料，但未比較來源限制" },
+    { text: "比較兩項資料並說明理由", rationale: "能交叉比較證據並提出合理依據" },
+    { text: "依共同標準比較並補充驗證", rationale: "能整合證據，也規劃下一步查證" },
+  ],
+});
+const courseAssessmentSeedResponse = {
+  narrative: {
+    evidenceLimited: assessmentNarrativeLevel("證據有限"),
+    emerging: assessmentNarrativeLevel("萌芽"),
+    developing: assessmentNarrativeLevel("發展"),
+    mastering: assessmentNarrativeLevel("精熟"),
+  },
+  pre: {
+    scenarioBlueprint: {
+      setting: "校園兩處在同一天測得不同溫度，班級要判斷哪一處優先改善",
+      contextFacts: [
+        "兩處都在午休時間量測，但使用的溫度計與遮蔭條件不同",
+        "大家事先約定以相同時段的溫度與使用人數作為比較依據",
+      ],
+      evidenceA: { label: "溫度紀錄", detail: "操場與走廊的溫度差異明顯" },
+      evidenceB: { label: "使用人數", detail: "較高溫處的使用人數反而較少" },
+      conflict: "溫度高低與實際使用人數呈現不同的優先順序",
+      decisionTask: "判斷哪一處應優先投入有限的遮蔭設備",
+      observationFocus: ["溫度資料", "使用人數", "量測條件"],
+      constraint: "只能先改善一處",
+    },
+    q1: assessmentQuestion(
+      "面對上述資料，第一步應查看哪項基本證據確認目前問題？",
+      "基本",
+    ),
+    q2: assessmentQuestion(
+      "溫度與使用人數呈現不同結論時，哪種比較方式最可靠？",
+      "比較",
+    ),
+    q3: assessmentQuestion(
+      "若換到另一棟教學大樓，應如何調整蒐證方式使判斷更可靠？",
+      "遷移",
+    ),
+    q4: {
+      evidenceLimited: "只提出結論，未引用可檢查的證據或理由。",
+      emerging: "能引用一項資料，但沒有比較資料分歧與限制。",
+      developing: "能使用共同標準比較多項證據，並說明選擇理由。",
+      mastering: "能指出資料限制、調整方法並提出替代驗證。",
+      studentExamples: {
+        evidenceLimited: "我覺得操場比較熱，所以直接先改善操場。",
+        emerging: "我看到操場較熱，但還不確定人數資料要怎麼使用。",
+        developing: "我會先比較相同時段的溫度和使用人數，再說明優先順序。",
+        mastering: "我會先確認量測條件，再加入不同時段資料交叉驗證後決定。",
+      },
+    },
+    statistics:
+      "Q1–Q3 加總判讀四級趨勢，教師再搭配 Q4 的證據、理由、限制與遷移表現綜合判讀。",
+  },
+};
+const postAssessmentResponse = {
+  post: {
+    scenarioBlueprint: {
+      setting:
+        "完成「全球氣候變遷－極端氣候與校園調適倡議」後，學生收到另一校區的熱風險資料與新增預算限制",
+      contextFacts: [
+        "另一校區以相同時段量測溫度，但通風、樓層與活動人數不同",
+        "原本的改善方案只能保留一項措施，且必須兼顧高溫風險與使用需求",
+      ],
+      evidenceA: {
+        label: "新校區溫度分布圖",
+        detail: "頂樓教室溫度較高，但主要使用時段集中在上午",
+      },
+      evidenceB: {
+        label: "空間使用與預算表",
+        detail: "一樓空間人數較多，但只能負擔一種改善措施",
+      },
+      conflict: "最高溫位置與最多人使用的位置並不相同",
+      decisionTask: "決定有限預算下應優先改善的空間與措施",
+      observationFocus: ["溫度風險", "使用人數", "預算限制"],
+      constraint: "只能執行一項改善措施",
+    },
+    q1: assessmentQuestion(
+      "面對新校區資料，哪一項概念最能協助辨識真正需要處理的風險？",
+      "概念",
+    ),
+    q2: assessmentQuestion(
+      "最高溫位置與最多人使用的位置不同時，哪種行動判斷最合理？",
+      "行動",
+    ),
+    q3: assessmentQuestion(
+      "若預算再縮減且量測資料缺漏，應如何調整原有方法並確認結果？",
+      "遷移",
+    ),
+    q4: {
+      evidenceLimited: "只提出選擇，未引用新資料或說明理由。",
+      emerging: "能引用一項新資料，但未處理資料衝突與預算限制。",
+      developing: "能比較多項新資料，並依限制提出有理由的調整方案。",
+      mastering: "能處理資料限制、提出替代驗證，並說明如何遷移原有判斷方法。",
+      studentExamples: {
+        evidenceLimited: "我覺得頂樓最熱，所以就先改善頂樓。",
+        emerging: "我看到頂樓最熱，但還沒比較實際使用人數和預算。",
+        developing: "我會比較溫度、使用人數與預算，再選擇能降低最多風險的措施。",
+        mastering: "如果部分量測缺漏，我會補查相同時段資料並訪問使用者，再用新紀錄確認調整是否有效。",
+      },
+      conceptAnnotations: {
+        correct: "能以風險、暴露與限制說明為何不能只看最高溫。",
+        partial: "知道要比較資料，但未說明各資料與風險判斷的關係。",
+        misconception: "認為最高溫位置必然就是唯一優先改善位置。",
+      },
+      transferAnnotations: {
+        notYet: "只重述原課程方案，未回應新校區資料或預算限制。",
+        emerging: "能套用部分比較方法，但未調整資料缺漏或確認成效。",
+        adaptive: "能因新限制調整蒐證與決策方法，並提出可觀察的成效確認方式。",
+      },
+    },
+    statistics:
+      "Q1–Q3 依能力階梯加總判讀四級趨勢，再以 Q4 的概念、行動、限制處理與遷移證據進行人工校準。",
+  },
+};
+const revisedDevelopingNarrative = {
+  ...courseAssessmentSeedResponse.narrative.developing,
+  classroomBehavior:
+    "發展學生能比較兩項校園氣候資料，並以共同標準說明判斷依據。",
+};
 const revisedUnitArc =
   "先診斷知識基礎，再以 NPDL 子向度判讀資料，最後完成倡議與新情境遷移。";
 const lessonReferenceAnalysis = {
@@ -351,6 +484,10 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
           throw new Error(`${name} 教案附件文字未送入分析提示`);
         }
         output = lessonReferenceAnalysis;
+      } else if ("narrative" in schemaProperties && "pre" in schemaProperties) {
+        output = courseAssessmentSeedResponse;
+      } else if ("post" in schemaProperties) {
+        output = postAssessmentResponse;
       } else if ("performanceTask" in schemaProperties) {
         evidenceResponseCount += 1;
         output =
@@ -366,6 +503,11 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
           output = { value: revisedRationale };
         } else if (requestText.includes("真實總結任務")) {
           output = { value: revisedPerformanceTask };
+        } else if (
+          requestText.includes("課程敘述語") &&
+          requestText.includes("發展")
+        ) {
+          output = { value: revisedDevelopingNarrative };
         } else if (requestText.includes("單元弧線")) {
           output = { value: revisedUnitArc };
         }
@@ -641,8 +783,46 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     .first()
     .fill("提出可執行的校園氣候調適方案（教師修訂）。");
   await page
-    .getByRole("button", { name: "確認證據，前往節次藍圖" })
+    .getByRole("button", {
+      name: "確認證據，前往課程敘述與課前評量",
+    })
     .click();
+  const assessmentSeedCard = courseWorkspace(page)
+    .getByRole("heading", { name: "課程敘述與課前評量" })
+    .locator("xpath=ancestor::section[1]");
+  await assessmentSeedCard
+    .getByRole("button", { name: "AI 產生課程敘述與完整課前評量" })
+    .click();
+  await assessmentSeedCard
+    .getByText("課前評量已對齊", { exact: true })
+    .waitFor();
+  await assessmentSeedCard
+    .getByText(courseAssessmentSeedResponse.pre.q1.stem, { exact: true })
+    .waitFor();
+  await assessmentSeedCard
+    .getByText("查看課前與預定課後 Q1–Q4 對齊", { exact: true })
+    .click();
+  for (const expected of [
+    "PRE.Q1｜辨識與問題直接相關的概念與證據。",
+    "POST.Q4｜整合概念、行動與遷移形成完整書面判斷。",
+  ]) {
+    await assessmentSeedCard.getByText(expected, { exact: true }).waitFor();
+  }
+  await assessmentSeedCard
+    .getByRole("tab", { name: "發展", exact: true })
+    .click();
+  await reviseCard({
+    trigger: assessmentSeedCard.getByRole("button", {
+      name: "微調此段",
+      exact: true,
+    }),
+    dialogName: "修改課程敘述語 發展",
+    instruction: "讓可觀察行為更貼近校園氣候資料比較。",
+    expectedText: revisedDevelopingNarrative.classroomBehavior,
+  });
+  await assessmentSeedCard
+    .getByText(revisedDevelopingNarrative.classroomBehavior, { exact: true })
+    .waitFor();
   await courseWorkspace(page).getByLabel("總節數").fill("3");
   await courseWorkspace(page)
     .getByRole("button", { name: "AI 產生單元節次藍圖" })
@@ -748,7 +928,7 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     .getByText("已在外部產生", { exact: true })
     .waitFor();
 
-  if (requestCount !== 9) {
+  if (requestCount !== 11) {
     throw new Error(`${name} AI 請求次數錯誤：${requestCount}`);
   }
 
@@ -764,7 +944,7 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   await page
     .getByRole("heading", { name: "3 節完整教案與學習單提示詞已準備" })
     .waitFor();
-  if (requestCount !== 11) {
+  if (requestCount !== 13) {
     throw new Error(`${name} 修復失敗重試次數錯誤：${requestCount}`);
   }
 
@@ -781,16 +961,20 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   ) {
     throw new Error(`${name} 設定視窗不應顯示非選定供應商的金鑰欄位`);
   }
-  await settingsDialog.getByRole("button", { name: "清除此金鑰" }).click();
-  await page.waitForFunction(
-    () => localStorage.getItem("npdl_custom_api_key") === null,
-  );
-  await settingsDialog.getByRole("button", { name: "清除所有 API Key" }).click();
-  await page.waitForFunction(
-    () =>
-      localStorage.getItem("npdl_openai_api_key") === null &&
-      localStorage.getItem("npdl_xai_api_key") === null,
-  );
+  if (!verifyHandoff) {
+    await settingsDialog.getByRole("button", { name: "清除此金鑰" }).click();
+    await page.waitForFunction(
+      () => localStorage.getItem("npdl_custom_api_key") === null,
+    );
+    await settingsDialog
+      .getByRole("button", { name: "清除所有 API Key" })
+      .click();
+    await page.waitForFunction(
+      () =>
+        localStorage.getItem("npdl_openai_api_key") === null &&
+        localStorage.getItem("npdl_xai_api_key") === null,
+    );
+  }
   await settingsDialog.getByRole("button", { name: "完成設定" }).click();
   await settingsDialog.waitFor({ state: "hidden" });
 
@@ -807,9 +991,19 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     await courseWorkspace(page)
       .getByRole("button", { name: "帶入評量設計" })
       .click();
+    const handoffDialog = page.getByRole("dialog", {
+      name: "確認帶入評量設計的內容",
+    });
+    await handoffDialog.waitFor();
+    await handoffDialog
+      .getByText("課程敘述與前測", { exact: true })
+      .waitFor();
+    await handoffDialog
+      .getByRole("button", { name: "確認帶入，前往評量設計" })
+      .click();
     await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
     await page
-      .getByText("已帶入課程設計專案，可直接產生對齊的正式評量。", {
+      .getByText("已唯讀帶入課程敘述語與完整課前評量；可直接分析課程與前測，產生課後評量。", {
         exact: true,
       })
       .waitFor();
@@ -830,6 +1024,38 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     if (retainedHandoff !== null) {
       throw new Error(`${name} 評量工作室讀取後未清除一次性交接資料`);
     }
+    const assessmentWorkspace = page.locator(
+      'section[aria-label="評量設計工作區"]',
+    );
+    await assessmentWorkspace
+      .getByRole("tab", { name: "課前診斷", exact: true })
+      .click();
+    await assessmentWorkspace
+      .getByText(courseAssessmentSeedResponse.pre.q1.stem, { exact: true })
+      .waitFor();
+    await assessmentWorkspace
+      .getByLabel("實際教學與原設計不同之處（選填）")
+      .fill("第三節改用紙本資料，學生需要更多因果推論鷹架。");
+    await assessmentWorkspace
+      .getByRole("button", {
+        name: "分析課程與前測，產生課後評量",
+        exact: true,
+      })
+      .last()
+      .click();
+    await assessmentWorkspace
+      .getByRole("tab", { name: "課後遷移", exact: true })
+      .click();
+    await assessmentWorkspace
+      .getByText(postAssessmentResponse.post.q1.stem, { exact: true })
+      .waitFor();
+    await assessmentWorkspace
+      .getByText("完整課程與評量證據包", { exact: true })
+      .waitFor();
+    await page.screenshot({
+      path: `${outputDir}/assessment-post-desktop.png`,
+      fullPage: false,
+    });
   } else {
     await curriculumCard
       .getByRole("button", { name: "取消選取 地Ia-Ⅴ-2" })
@@ -1350,7 +1576,7 @@ try {
     false,
   );
 console.log(
-  `合併工作區 UI smoke test 通過：根網址課程預設、分頁／瀏覽器歷史、舊網址轉址、狀態保留、顯式同頁評量交接、8 組多學科範例、教案附件選擇性帶入、完整 108 課綱搜尋多選、四階段單卡 AI 修改與套用、共用 BYOK 模型與金鑰、Puter 遷移、錯誤資訊邊界、完整評量證據、單元節次藍圖、Gemini Canvas、桌面與手機版均正常。截圖：${outputDir}`,
+  `合併工作區 UI smoke test 通過：根網址課程預設、分頁／瀏覽器歷史、舊網址轉址、狀態保留、顯式同頁評量交接、8 組多學科範例、教案附件選擇性帶入、完整 108 課綱搜尋多選、四階段單卡 AI 修改與套用、共用 BYOK 模型與金鑰、Puter 遷移、錯誤資訊邊界、完整評量證據、課程敘述與正式前測、單元節次藍圖、Gemini Canvas、課程與前測分析後的正式後測、完整評量證據包，以及桌面與手機版均正常。截圖：${outputDir}`,
 );
 } finally {
   await browser.close();

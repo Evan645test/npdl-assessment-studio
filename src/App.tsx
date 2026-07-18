@@ -221,13 +221,32 @@ export default function App({
       {state.handoffNotice && (
         <div className="flex items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50 px-4 py-2 text-sm">
           <span className="font-bold text-emerald-900">{state.handoffNotice}</span>
-          <button
-            type="button"
-            onClick={state.dismissHandoffNotice}
-            className="rounded-lg border border-emerald-200 bg-white px-3 py-1 text-xs font-black text-emerald-800"
-          >
-            知道了
-          </button>
+          {state.pendingProjectUpdate ? (
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={state.keepCurrentAssessment}
+                className="rounded-lg border border-emerald-200 bg-white px-3 py-1 text-xs font-black text-emerald-800"
+              >
+                保留目前評量
+              </button>
+              <button
+                type="button"
+                onClick={state.acceptPendingProjectUpdate}
+                className="rounded-lg bg-[#173f36] px-3 py-1 text-xs font-black text-white"
+              >
+                套用並重新產生
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={state.dismissHandoffNotice}
+              className="rounded-lg border border-emerald-200 bg-white px-3 py-1 text-xs font-black text-emerald-800"
+            >
+              知道了
+            </button>
+          )}
         </div>
       )}
 
@@ -307,6 +326,11 @@ export default function App({
                   ideationNotice={state.ideationNotice}
                   onIdeate={state.runIdeation}
                   onGenerate={state.runGenerate}
+                  generateLabel={
+                    state.courseAlignedMode
+                      ? "分析課程與前測，產生課後評量"
+                      : undefined
+                  }
                   onJumpStep={handleJumpStep}
                   mobileStep={state.mobileStep}
                   setMobileStep={state.setMobileStep}
@@ -353,6 +377,11 @@ export default function App({
                   ideationNotice={state.ideationNotice}
                   onIdeate={state.runIdeation}
                   onGenerate={state.runGenerate}
+                  generateLabel={
+                    state.courseAlignedMode
+                      ? "分析課程與前測，產生課後評量"
+                      : undefined
+                  }
                   onJumpStep={handleJumpStep}
                   mobileStep={state.mobileStep}
                   setMobileStep={state.setMobileStep}
@@ -366,9 +395,49 @@ export default function App({
           )}
         </AnimatePresence>
 
-        <main ref={outputRef} className="min-w-0 flex-1">
+        <main
+          ref={outputRef}
+          className="flex min-w-0 flex-1 flex-col overflow-hidden"
+        >
+          {state.courseAlignedMode && (
+            <section className="shrink-0 border-b border-cyan-100 bg-cyan-50/80 px-4 py-3">
+              <div className="mx-auto flex max-w-5xl flex-col gap-3 lg:flex-row lg:items-end">
+                <label className="min-w-0 flex-1">
+                  <span className="text-xs font-black text-cyan-950">
+                    實際教學與原設計不同之處（選填）
+                  </span>
+                  <span className="ml-2 text-[10px] font-bold text-cyan-800">
+                    未填時會直接分析課程、前測與節次藍圖
+                  </span>
+                  <textarea
+                    value={state.implementationNotes}
+                    onChange={(event) =>
+                      state.setImplementationNotes(
+                        event.target.value.slice(0, 5000),
+                      )
+                    }
+                    rows={2}
+                    placeholder="例如：第三節因停電改用紙本資料；學生普遍能讀圖，但對因果推論仍不穩定。"
+                    className="mt-1 w-full resize-y rounded-xl border border-cyan-200 bg-white px-3 py-2 text-xs font-medium leading-6 text-zinc-800 outline-none focus:border-cyan-500"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={state.runGenerate}
+                  disabled={!state.canGenerate || state.generating}
+                  className="min-h-12 shrink-0 rounded-xl bg-[#173f36] px-5 text-sm font-black text-white hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {state.generating
+                    ? "正在產生課後評量…"
+                    : state.assessmentDocument
+                      ? "依最新狀況重新產生課後評量"
+                      : "分析課程與前測，產生課後評量"}
+                </button>
+              </div>
+            </section>
+          )}
           <div
-            className="mx-auto h-full transition-all duration-300"
+            className="mx-auto min-h-0 w-full flex-1 transition-all duration-300"
             style={{ maxWidth: previewWidths[state.previewDevice] }}
           >
             <OutputWorkspace
@@ -386,7 +455,13 @@ export default function App({
               highlightKey={state.highlightKey}
               bank={state.bank}
               validation={state.validation}
-              onRefine={state.canRefine ? (target) => {
+              assessmentDesignContext={state.assessmentDesignContext}
+              assessmentDocument={state.assessmentDocument}
+              implementationNotes={state.implementationNotes}
+              onRefine={
+                state.canRefine &&
+                (!state.courseAlignedMode || state.activeModuleTab === 2)
+                  ? (target) => {
                 state.setRefineTarget(target);
                 if (target.type === "scenario") {
                   state.setRefineInstruction(
@@ -397,7 +472,9 @@ export default function App({
                 } else {
                   state.setRefineInstruction("");
                 }
-              } : undefined}
+                    }
+                  : undefined
+              }
               onSaveQuestion={state.saveQuestion}
               onOpenAiSettings={onOpenAiSettings}
               onOpenGoogleFormsSettings={() => state.setSettingsOpen(true)}

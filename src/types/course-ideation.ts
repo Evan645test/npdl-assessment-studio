@@ -263,6 +263,36 @@ export interface UnitBlueprintResult {
   model: string;
 }
 
+export type AssessmentQuestionKey =
+  | "pre.q1"
+  | "pre.q2"
+  | "pre.q3"
+  | "pre.q4"
+  | "post.q1"
+  | "post.q2"
+  | "post.q3"
+  | "post.q4";
+
+export interface AssessmentQuestionAlignment {
+  questionKey: AssessmentQuestionKey;
+  purpose: string;
+  focus: EvidenceQuestionFocus;
+  criterionIds: string[];
+  observableEvidence: string;
+}
+
+export interface CourseAssessmentSeedV1 {
+  version: 1;
+  generatedAt: number;
+  model: string;
+  sourceFingerprint: string;
+  narrative: import("./index").NarrativeDocument;
+  pre: import("./index").AssessmentModuleDocument;
+  preMappings: AssessmentQuestionAlignment[];
+  plannedPostMappings: AssessmentQuestionAlignment[];
+  mode: "ai_generated" | "teacher_edited";
+}
+
 export type WorkflowState = "empty" | "current" | "stale";
 
 export interface LessonPromptStatus {
@@ -289,6 +319,7 @@ export interface LearningDesignProjectV1 {
   desiredResultsConfirmedAt: number | null;
   evidencePlan: EvidencePlanResult | null;
   evidencePlanConfirmedAt: number | null;
+  courseAssessmentSeed?: CourseAssessmentSeedV1 | null;
   unitConstraints: UnitConstraints;
   unitBlueprint: UnitBlueprintResult | null;
   unitBlueprintConfirmedAt: number | null;
@@ -313,6 +344,9 @@ export interface LessonPromptPackage {
 
 export interface AssessmentDesignContext {
   projectId: string;
+  sourceUpdatedAt: number;
+  sourceFingerprint: string;
+  assessmentSeedSourceFingerprint?: string;
   curriculum: Array<{
     id: string;
     code: string;
@@ -324,9 +358,13 @@ export interface AssessmentDesignContext {
   essentialQuestions: string[];
   outcomes: DesiredResults["outcomes"];
   successCriteria: SuccessCriterion[];
+  selectedIndicatorId: string;
   performanceTask: PerformanceTask | null;
   questionMaps: EvidenceQuestionMap[];
   evidenceItems: EvidenceItem[];
+  academicRubric: AcademicRubricCriterion[];
+  unitBlueprint: UnitBlueprintResult | null;
+  courseAssessmentSeed: CourseAssessmentSeedV1 | null;
   lessonReference?: AppliedLessonReference | null;
 }
 

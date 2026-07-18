@@ -47,6 +47,8 @@ export interface GoogleFormExportEntry {
 
 export interface GoogleFormsExportRecord {
   fingerprint: string;
+  preFingerprint?: string;
+  postFingerprint?: string;
   pre?: GoogleFormExportEntry;
   post?: GoogleFormExportEntry;
   updatedAt: number;
@@ -254,16 +256,32 @@ function buildModuleItems(content: string, type: GoogleFormModule): GoogleFormIt
 }
 
 export function getGoogleFormsExportIssue(preContent: string, postContent: string): string | null {
-  for (const [content, type, label] of [
-    [preContent, "pre", "課前診斷"],
-    [postContent, "post", "課後遷移"],
-  ] as const) {
-    const question = parseAssessmentModule(content, type).questions.find((item) => item.rawTitle.includes("Q4"));
-    if (!question) return `${label}缺少 Q4，請重新生成評量。`;
-    if (!question.rawTitle.includes("[引導式簡答題]")) continue;
-    if (!hasStructuredQ4Scaffold(question.rawTitle, parseGuidedQ4Text(question.text).steps)) {
-      return `${label} Q4 未通過品質檢查，請重新生成評量。`;
-    }
+  const preIssue = getGoogleFormsModuleExportIssue(preContent, "pre");
+  if (preIssue) return preIssue;
+  if (postContent.trim()) {
+    return getGoogleFormsModuleExportIssue(postContent, "post");
+  }
+  return null;
+}
+
+export function getGoogleFormsModuleExportIssue(
+  content: string,
+  type: GoogleFormModule,
+): string | null {
+  const label = type === "pre" ? "課前診斷" : "課後遷移";
+  if (!content.trim()) return `${label}尚未產生。`;
+  const question = parseAssessmentModule(content, type).questions.find((item) =>
+    item.rawTitle.includes("Q4"),
+  );
+  if (!question) return `${label}缺少 Q4，請重新生成評量。`;
+  if (!question.rawTitle.includes("[引導式簡答題]")) return null;
+  if (
+    !hasStructuredQ4Scaffold(
+      question.rawTitle,
+      parseGuidedQ4Text(question.text).steps,
+    )
+  ) {
+    return `${label} Q4 未通過品質檢查，請重新生成評量。`;
   }
   return null;
 }
@@ -449,20 +467,59 @@ export async function createGoogleFormsFromAssessment({
   form: CourseForm;
   indicatorName: string;
   preContent: string;
-  postContent: string;
+  postContent?: string;
   existing?: GoogleFormsExportRecord | null;
   onProgress?: (record: GoogleFormsExportRecord) => void;
 }): Promise<GoogleFormsExportRecord> {
   const trimmedClientId = normalizeGoogleOAuthClientId(clientId);
-  if (!preContent.trim() || !postContent.trim()) throw new Error("需要先產生課前診斷與課後遷移內容，才能匯出 Google 問卷。");
-  const issue = getGoogleFormsExportIssue(preContent, postContent);
+  const normalizedPostContent = postContent ?? "";
+  if (!preContent.trim()) {
+    throw new Error("需要先產生課前診斷，才能匯出 Google 問卷。");
+  }
+  const issue = getGoogleFormsExportIssue(preContent, normalizedPostContent);
   if (issue) throw new Error(issue);
 
-  const fingerprint = assessmentExportFingerprint(form, indicatorName, preContent, postContent);
-  const record: GoogleFormsExportRecord = existing?.fingerprint === fingerprint
-    ? { ...existing, updatedAt: Date.now() }
-    : { fingerprint, updatedAt: Date.now() };
-  const pending = (["pre", "post"] as const).filter(
+  const fingerprint = assessmentExportFingerprint(
+    form,
+    indicatorName,
+    preContent,
+    normalizedPostContent,
+  );
+  const preFingerprint = assessmentExportFingerprint(
+    form,
+    indicatorName,
+    preContent,
+    "",
+  );
+  const postFingerprint = normalizedPostContent.trim()
+    ? assessmentExportFingerprint(
+        form,
+        indicatorName,
+        "",
+        normalizedPostContent,
+      )
+    : undefined;
+  const record: GoogleFormsExportRecord = {
+    fingerprint,
+    preFingerprint,
+    postFingerprint,
+    pre:
+      existing?.preFingerprint === preFingerprint ||
+      (existing?.fingerprint === fingerprint && !existing.preFingerprint)
+        ? existing.pre
+        : undefined,
+    post:
+      postFingerprint &&
+      (existing?.postFingerprint === postFingerprint ||
+        (existing?.fingerprint === fingerprint && !existing.postFingerprint))
+        ? existing.post
+        : undefined,
+    updatedAt: Date.now(),
+  };
+  const available: GoogleFormModule[] = normalizedPostContent.trim()
+    ? ["pre", "post"]
+    : ["pre"];
+  const pending = available.filter(
     (type) => !isGoogleFormExportEntryComplete(record[type]),
   );
   if (pending.length === 0) return record;
@@ -472,7 +529,7 @@ export async function createGoogleFormsFromAssessment({
   for (const type of pending) {
     record[type] = await createOneForm(
       type,
-      type === "pre" ? preContent : postContent,
+      type === "pre" ? preContent : normalizedPostContent,
       accessToken,
       form,
       indicatorName,

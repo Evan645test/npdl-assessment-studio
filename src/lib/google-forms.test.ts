@@ -131,6 +131,53 @@ describe("Google Forms Q4 export", () => {
     });
   });
 
+  it("can publish the course-side pre form before post generation", async () => {
+    const modules = splitModules(
+      renderAssessmentMarkdown(TEST_ASSESSMENT_DOCUMENT, TEST_FORM),
+    );
+    vi.stubGlobal("window", {
+      google: {
+        accounts: {
+          oauth2: {
+            initTokenClient: (config: any) => ({
+              requestAccessToken: () =>
+                config.callback({ access_token: "token" }),
+            }),
+          },
+        },
+      },
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ formId: "pre-only", responderUri: "https://pre" }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({}), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ formId: "pre-only" }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createGoogleFormsFromAssessment({
+      clientId: TEST_CLIENT_ID,
+      form: TEST_FORM,
+      indicatorName: TEST_FORM.customIndicator,
+      preContent: modules[1],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.pre?.status).toBe("complete");
+    expect(result.post).toBeUndefined();
+    expect(result.preFingerprint).toBeTruthy();
+  });
+
   it("retries only the missing form after a partial success", async () => {
     const modules = splitModules(renderAssessmentMarkdown(TEST_ASSESSMENT_DOCUMENT, TEST_FORM));
     vi.stubGlobal("window", {

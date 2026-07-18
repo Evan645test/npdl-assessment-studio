@@ -42,6 +42,7 @@ import {
   buildCourseAlignmentPrompt,
   buildCourseIdeationHandoff,
   buildKeywordAnalysisPrompt,
+  courseIdeationHandoffToForm,
   CourseIdeationResponseError,
   COURSE_IDEATION_RESPONSE_ERROR_MESSAGE,
   getCourseAlignmentSchema,
@@ -84,6 +85,7 @@ import {
 } from "@/lib/lesson-reference";
 import {
   buildDesiredResults,
+  buildAssessmentDesignContext,
   buildEvidencePlanPrompt,
   buildEvidencePlanRepairPrompt,
   buildUnitPromptPackage,
@@ -99,6 +101,21 @@ import {
   validateEvidencePlanResult,
   validateUnitBlueprintResult,
 } from "@/lib/learning-design";
+import {
+  buildCourseAssessmentSourceFingerprint,
+  COURSE_ASSESSMENT_SEED_SCHEMA,
+  isCourseAssessmentSeedCurrent,
+  parseCourseAssessmentSeed,
+  renderCourseAssessmentSeedMarkdown,
+  validateCourseAssessmentSeed,
+} from "@/lib/course-assessment";
+import {
+  buildCourseAssessmentSeedPrompt,
+  buildCourseAssessmentSeedRepairPrompt,
+} from "@/prompts";
+import { splitModules } from "@/lib/markdown";
+import { NarrativeModule } from "@/features/output/NarrativeModule";
+import { AssessmentModule } from "@/features/output/AssessmentModule";
 import { toUserErrorMessage } from "@/lib/errors";
 import {
   KEYS,
@@ -108,6 +125,7 @@ import {
 } from "@/lib/storage";
 import type {
   CourseAlignmentResult,
+  CourseAssessmentSeedV1,
   AppliedLessonReference,
   CourseIdeationInput,
   CurriculumEntry,
@@ -154,6 +172,7 @@ interface CourseIdeationDraft {
   desiredResultsConfirmedAt?: number | null;
   evidencePlan?: EvidencePlanResult | null;
   evidencePlanConfirmedAt?: number | null;
+  courseAssessmentSeed?: CourseAssessmentSeedV1 | null;
   unitConstraints?: UnitConstraints;
   unitBlueprint?: UnitBlueprintResult | null;
   unitBlueprintConfirmedAt?: number | null;
@@ -166,7 +185,13 @@ interface CourseIdeationDraft {
   savedAt: number;
 }
 
-type AiAction = "analyze" | "align" | "evidence" | "blueprint" | "reference";
+type AiAction =
+  | "analyze"
+  | "align"
+  | "evidence"
+  | "assessment_seed"
+  | "blueprint"
+  | "reference";
 
 const DEFAULT_INPUT = createCourseIdeationExampleInput(
   DEFAULT_COURSE_IDEATION_EXAMPLE_ID,
@@ -262,12 +287,32 @@ function sameIds(left: string[], right: string[]): boolean {
   );
 }
 
+function narrativeLevelKey(
+  label: string,
+): "evidenceLimited" | "emerging" | "developing" | "mastering" | null {
+  if (label.includes("證據有限")) return "evidenceLimited";
+  if (label.includes("萌芽")) return "emerging";
+  if (label.includes("發展")) return "developing";
+  if (label.includes("精熟")) return "mastering";
+  return null;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function revisionParentForTarget(
   target: CourseCardRevisionTarget,
   values: {
     analysis: KeywordAnalysisResult | null;
     alignment: CourseAlignmentResult | null;
     evidencePlan: EvidencePlanResult | null;
+    courseAssessmentSeed: CourseAssessmentSeedV1 | null;
     unitBlueprint: UnitBlueprintResult | null;
   },
 ): CourseRevisionParent | null {
@@ -291,6 +336,9 @@ function revisionParentForTarget(
   }
   if (target.kind === "unit_arc" || target.kind === "lesson") {
     return values.unitBlueprint;
+  }
+  if (target.kind === "course_narrative_level") {
+    return values.courseAssessmentSeed;
   }
   return values.evidencePlan;
 }
@@ -1203,6 +1251,12 @@ export default function CourseIdeationApp({
       initialDraft?.evidencePlanConfirmedAt ??
       null,
   );
+  const [courseAssessmentSeed, setCourseAssessmentSeed] =
+    useState<CourseAssessmentSeedV1 | null>(
+      initialStoredProject?.courseAssessmentSeed ??
+        initialDraft?.courseAssessmentSeed ??
+        null,
+    );
   const [unitConstraints, setUnitConstraints] = useState<UnitConstraints>(
     initialDraft?.unitConstraints ?? DEFAULT_UNIT_CONSTRAINTS,
   );
@@ -1252,7 +1306,11 @@ export default function CourseIdeationApp({
   const [consentGranted, setConsentGranted] = useState(hasSavedConsent);
   const [error, setError] = useState<string | null>(null);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [assessmentSeedError, setAssessmentSeedError] = useState<string | null>(
+    null,
+  );
   const [blueprintError, setBlueprintError] = useState<string | null>(null);
+  const [handoffPreviewOpen, setHandoffPreviewOpen] = useState(false);
 
   const selectedProvider = getCourseIdeationProvider(settings.model);
   const hasModelAccess =
@@ -1335,6 +1393,22 @@ export default function CourseIdeationApp({
     () => validateUnitConstraints(unitConstraints),
     [unitConstraints],
   );
+  const courseAssessmentSourceFingerprint = useMemo(
+    () =>
+      desiredResults && evidencePlan
+        ? buildCourseAssessmentSourceFingerprint({
+            course: input,
+            selectedIndicatorId,
+            desiredResults,
+            evidencePlan,
+          })
+        : "",
+    [desiredResults, evidencePlan, input, selectedIndicatorId],
+  );
+  const assessmentSeedCurrent = isCourseAssessmentSeedCurrent(
+    courseAssessmentSeed,
+    courseAssessmentSourceFingerprint,
+  );
   const currentProject = useMemo<LearningDesignProjectV1>(
     () => ({
       version: 1,
@@ -1355,6 +1429,7 @@ export default function CourseIdeationApp({
       desiredResultsConfirmedAt,
       evidencePlan,
       evidencePlanConfirmedAt,
+      courseAssessmentSeed,
       unitConstraints,
       unitBlueprint,
       unitBlueprintConfirmedAt,
@@ -1372,6 +1447,7 @@ export default function CourseIdeationApp({
       desiredResultsConfirmedAt,
       evidencePlan,
       evidencePlanConfirmedAt,
+      courseAssessmentSeed,
       input,
       lessonPromptStatus,
       lessonReferenceAnalysis,
@@ -1383,12 +1459,43 @@ export default function CourseIdeationApp({
       unitConstraints,
     ],
   );
+  const assessmentDesignContext = useMemo(
+    () => buildAssessmentDesignContext(currentProject),
+    [currentProject],
+  );
+  const assessmentForm = useMemo(
+    () =>
+      alignment && selectedIndicatorId
+        ? courseIdeationHandoffToForm(
+            buildCourseIdeationHandoff(
+              input,
+              alignment,
+              selectedIndicatorId,
+              projectId,
+            ),
+          )
+        : null,
+    [alignment, input, projectId, selectedIndicatorId],
+  );
+  const assessmentSeedModules = useMemo(
+    () =>
+      courseAssessmentSeed && assessmentForm
+        ? splitModules(
+            renderCourseAssessmentSeedMarkdown(
+              courseAssessmentSeed,
+              assessmentForm,
+            ),
+          )
+        : [],
+    [assessmentForm, courseAssessmentSeed],
+  );
   const pendingPrompt = useMemo(() => {
     if (pendingRevisionTarget && revisionTarget === pendingRevisionTarget) {
       const parent = revisionParentForTarget(pendingRevisionTarget, {
         analysis,
         alignment,
         evidencePlan,
+        courseAssessmentSeed,
         unitBlueprint,
       });
       const currentCard = parent
@@ -1439,6 +1546,17 @@ export default function CourseIdeationApp({
       );
     }
     if (
+      pendingAction === "assessment_seed" &&
+      assessmentDesignContext &&
+      assessmentForm
+    ) {
+      return buildCourseAssessmentSeedPrompt(
+        assessmentForm,
+        selectedIndicator ?? null,
+        assessmentDesignContext,
+      );
+    }
+    if (
       pendingAction === "blueprint" &&
       alignment &&
       desiredResults &&
@@ -1452,6 +1570,7 @@ export default function CourseIdeationApp({
         evidencePlan,
         unitConstraints,
         appliedLessonReference,
+        courseAssessmentSeed,
       );
     }
     return null;
@@ -1459,6 +1578,9 @@ export default function CourseIdeationApp({
     analysis,
     alignment,
     appliedLessonReference,
+    assessmentDesignContext,
+    assessmentForm,
+    courseAssessmentSeed,
     curriculumCandidates,
     curriculumRecommendation,
     curriculumSelection,
@@ -1471,6 +1593,7 @@ export default function CourseIdeationApp({
     revisionInstruction,
     revisionTarget,
     selectedIndicatorId,
+    selectedIndicator,
     unitBlueprint,
     unitConstraints,
   ]);
@@ -1498,6 +1621,7 @@ export default function CourseIdeationApp({
       desiredResultsConfirmedAt,
       evidencePlan,
       evidencePlanConfirmedAt,
+      courseAssessmentSeed,
       unitConstraints,
       unitBlueprint,
       unitBlueprintConfirmedAt,
@@ -1517,6 +1641,7 @@ export default function CourseIdeationApp({
     desiredResultsConfirmedAt,
     evidencePlan,
     evidencePlanConfirmedAt,
+    courseAssessmentSeed,
     input,
     lessonPromptStatus,
     lessonReferenceAnalysis,
@@ -1541,6 +1666,7 @@ export default function CourseIdeationApp({
     setLessonPromptStatus([]);
     setPromptPreview(null);
     setEvidenceError(null);
+    setAssessmentSeedError(null);
     setBlueprintError(null);
     setAlignmentAudit({
       desiredResults: "empty",
@@ -1910,6 +2036,24 @@ export default function CourseIdeationApp({
       return;
     }
     if (
+      action === "assessment_seed" &&
+      (!alignment ||
+        !desiredResults ||
+        !evidencePlan ||
+        !evidencePlanConfirmedAt ||
+        alignmentAudit.desiredResults !== "current" ||
+        alignmentAudit.evidencePlan !== "current" ||
+        !assessmentDesignContext ||
+        !assessmentForm ||
+        !selectedIndicatorId)
+    ) {
+      scrollToDesignStep(
+        "learning-design-evidence",
+        "請先建立、編修並確認評量證據，再產生課程敘述語與課前評量。",
+      );
+      return;
+    }
+    if (
       action === "blueprint" &&
       (!alignment ||
         !desiredResults ||
@@ -1917,11 +2061,16 @@ export default function CourseIdeationApp({
         !evidencePlanConfirmedAt ||
         alignmentAudit.desiredResults !== "current" ||
         alignmentAudit.evidencePlan !== "current" ||
-        !selectedIndicatorId)
+        !selectedIndicatorId ||
+        !assessmentSeedCurrent)
     ) {
       scrollToDesignStep(
-        "learning-design-evidence",
-        "請先建立、編修並確認評量證據，再產生單元節次藍圖。",
+        assessmentSeedCurrent
+          ? "learning-design-evidence"
+          : "learning-design-assessment-seed",
+        assessmentSeedCurrent
+          ? "請先建立、編修並確認評量證據，再產生單元節次藍圖。"
+          : "請先產生最新的課程敘述語與課前評量，再產生單元節次藍圖。",
       );
       return;
     }
@@ -2031,6 +2180,7 @@ export default function CourseIdeationApp({
         setUnitBlueprintConfirmedAt(null);
         setLessonPromptStatus([]);
         setEvidenceError(null);
+        setAssessmentSeedError(null);
         setBlueprintError(null);
         setAlignmentAudit({
           desiredResults: "empty",
@@ -2100,10 +2250,83 @@ export default function CourseIdeationApp({
         setUnitBlueprintConfirmedAt(null);
         setLessonPromptStatus([]);
         setEvidenceError(null);
+        setAssessmentSeedError(null);
         setBlueprintError(null);
         setAlignmentAudit((current) => ({
           desiredResults: current.desiredResults,
           evidencePlan: "current",
+          unitBlueprint: unitBlueprint ? "stale" : "empty",
+        }));
+      } else if (
+        action === "assessment_seed" &&
+        assessmentDesignContext &&
+        assessmentForm &&
+        evidencePlan
+      ) {
+        const raw = await generateContent(
+          buildCourseAssessmentSeedPrompt(
+            assessmentForm,
+            selectedIndicator ?? null,
+            assessmentDesignContext,
+          ),
+          settings.model,
+          settings.geminiKey,
+          settings.openaiKey,
+          settings.xaiKey,
+          {
+            structured: {
+              name: "npdl_course_assessment_seed",
+              schema: COURSE_ASSESSMENT_SEED_SCHEMA,
+            },
+          },
+        );
+        let nextSeed: CourseAssessmentSeedV1;
+        try {
+          nextSeed = parseCourseAssessmentSeed(raw, {
+            model: settings.model,
+            sourceFingerprint: courseAssessmentSourceFingerprint,
+            evidencePlan,
+          });
+        } catch (caught) {
+          const repairedRaw = await generateContent(
+            buildCourseAssessmentSeedRepairPrompt(
+              raw,
+              toUserErrorMessage(caught),
+              assessmentForm,
+              selectedIndicator ?? null,
+              assessmentDesignContext,
+            ),
+            settings.model,
+            settings.geminiKey,
+            settings.openaiKey,
+            settings.xaiKey,
+            {
+              structured: {
+                name: "npdl_course_assessment_seed_repair",
+                schema: COURSE_ASSESSMENT_SEED_SCHEMA,
+              },
+            },
+          );
+          nextSeed = parseCourseAssessmentSeed(repairedRaw, {
+            model: settings.model,
+            sourceFingerprint: courseAssessmentSourceFingerprint,
+            evidencePlan,
+          });
+        }
+        const seedErrors = validateCourseAssessmentSeed(
+          nextSeed,
+          courseAssessmentSourceFingerprint,
+        );
+        if (seedErrors.length > 0) {
+          throw new CourseIdeationResponseError(seedErrors[0]);
+        }
+        setCourseAssessmentSeed(nextSeed);
+        setAssessmentSeedError(null);
+        setUnitBlueprintConfirmedAt(null);
+        setLessonPromptStatus([]);
+        setPromptPreview(null);
+        setAlignmentAudit((current) => ({
+          ...current,
           unitBlueprint: unitBlueprint ? "stale" : "empty",
         }));
       } else if (
@@ -2121,6 +2344,7 @@ export default function CourseIdeationApp({
             evidencePlan,
             unitConstraints,
             appliedLessonReference,
+            courseAssessmentSeed,
           ),
           settings.model,
           settings.geminiKey,
@@ -2154,6 +2378,7 @@ export default function CourseIdeationApp({
               unitConstraints,
               raw,
               caught.message,
+              courseAssessmentSeed,
             ),
             settings.model,
             settings.geminiKey,
@@ -2197,6 +2422,8 @@ export default function CourseIdeationApp({
           : toUserErrorMessage(caught);
       if (action === "evidence") {
         setEvidenceError(detailedMessage);
+      } else if (action === "assessment_seed") {
+        setAssessmentSeedError(detailedMessage);
       } else if (action === "blueprint") {
         setBlueprintError(detailedMessage);
       } else {
@@ -2254,6 +2481,20 @@ export default function CourseIdeationApp({
       return;
     }
     if (
+      action === "assessment_seed" &&
+      (!assessmentDesignContext ||
+        !assessmentForm ||
+        !evidencePlanConfirmedAt ||
+        alignmentAudit.desiredResults !== "current" ||
+        alignmentAudit.evidencePlan !== "current")
+    ) {
+      scrollToDesignStep(
+        "learning-design-evidence",
+        "請先建立、編修並確認評量證據，再產生課程敘述語與課前評量。",
+      );
+      return;
+    }
+    if (
       action === "blueprint" &&
       (!alignment ||
         !desiredResults ||
@@ -2261,11 +2502,16 @@ export default function CourseIdeationApp({
         !evidencePlanConfirmedAt ||
         alignmentAudit.desiredResults !== "current" ||
         alignmentAudit.evidencePlan !== "current" ||
-        !selectedIndicatorId)
+        !selectedIndicatorId ||
+        !assessmentSeedCurrent)
     ) {
       scrollToDesignStep(
-        "learning-design-evidence",
-        "請先建立、編修並確認評量證據，再產生單元節次藍圖。",
+        assessmentSeedCurrent
+          ? "learning-design-evidence"
+          : "learning-design-assessment-seed",
+        assessmentSeedCurrent
+          ? "請先建立、編修並確認評量證據，再產生單元節次藍圖。"
+          : "請先產生最新的課程敘述語與課前評量，再產生單元節次藍圖。",
       );
       return;
     }
@@ -2291,6 +2537,7 @@ export default function CourseIdeationApp({
       analysis,
       alignment,
       evidencePlan,
+      courseAssessmentSeed,
       unitBlueprint,
     });
     if (!parent || getCourseCardValue(parent, target) === undefined) return;
@@ -2396,6 +2643,17 @@ export default function CourseIdeationApp({
         mode: "teacher_edited",
       };
     }
+    if (target.kind === "course_narrative_level") {
+      const revisedSeed = merged as CourseAssessmentSeedV1;
+      const errors = validateCourseAssessmentSeed(
+        revisedSeed,
+        courseAssessmentSourceFingerprint,
+      );
+      if (errors.length > 0) {
+        throw new CourseIdeationResponseError(errors[0]);
+      }
+      return revisedSeed;
+    }
     if (!desiredResults) {
       throw new Error("學習終點資料不完整，無法驗證評量證據。");
     }
@@ -2443,6 +2701,7 @@ export default function CourseIdeationApp({
       analysis,
       alignment,
       evidencePlan,
+      courseAssessmentSeed,
       unitBlueprint,
     });
     const currentCard = parent
@@ -2540,6 +2799,7 @@ export default function CourseIdeationApp({
       analysis,
       alignment,
       evidencePlan,
+      courseAssessmentSeed,
       unitBlueprint,
     });
     if (!parent) {
@@ -2556,6 +2816,7 @@ export default function CourseIdeationApp({
       revisionTarget.kind === "learning_outcome" ||
       revisionTarget.kind === "four_element" ||
       revisionTarget.kind === "evidence_tools" ||
+      revisionTarget.kind === "course_narrative_level" ||
       revisionTarget.kind === "unit_arc" ||
       revisionTarget.kind === "lesson"
     );
@@ -2653,6 +2914,18 @@ export default function CourseIdeationApp({
         evidencePlan: evidencePlan ? "stale" : "empty",
         unitBlueprint: unitBlueprint ? "stale" : "empty",
       });
+    } else if (target.kind === "course_narrative_level") {
+      setCourseAssessmentSeed(
+        revisionDraft.parent as CourseAssessmentSeedV1,
+      );
+      setAssessmentSeedError(null);
+      setUnitBlueprintConfirmedAt(null);
+      setLessonPromptStatus([]);
+      setPromptPreview(null);
+      setAlignmentAudit((current) => ({
+        ...current,
+        unitBlueprint: unitBlueprint ? "stale" : "empty",
+      }));
     } else if (target.kind !== "unit_arc" && target.kind !== "lesson") {
       setEvidencePlan(revisionDraft.parent as EvidencePlanResult);
       setEvidencePlanConfirmedAt(null);
@@ -2773,6 +3046,8 @@ export default function CourseIdeationApp({
       setEvidenceError(message);
     } else if (id === "learning-design-blueprint") {
       setBlueprintError(message);
+    } else if (id === "learning-design-assessment-seed") {
+      setAssessmentSeedError(message);
     }
   };
 
@@ -2782,6 +3057,7 @@ export default function CourseIdeationApp({
     setLessonPromptStatus([]);
     setPromptPreview(null);
     setEvidenceError(null);
+    setAssessmentSeedError(null);
     setBlueprintError(null);
     setAlignmentAudit((current) => ({
       ...current,
@@ -3000,7 +3276,9 @@ export default function CourseIdeationApp({
     setEvidenceError(null);
     setAlignmentAudit((current) => ({ ...current, evidencePlan: "current" }));
     window.setTimeout(() => {
-      const target = document.getElementById("learning-design-blueprint");
+      const target = document.getElementById(
+        "learning-design-assessment-seed",
+      );
       target?.scrollIntoView({ behavior: "smooth", block: "start" });
       target?.focus({ preventScroll: true });
     }, 100);
@@ -3261,6 +3539,60 @@ export default function CourseIdeationApp({
     setError(null);
   };
 
+  const downloadCourseAssessmentSeed = () => {
+    if (!courseAssessmentSeed || !assessmentForm || !assessmentSeedCurrent) {
+      setAssessmentSeedError("請先產生最新的課程敘述語與課前評量。");
+      return;
+    }
+    const markdown = renderCourseAssessmentSeedMarkdown(
+      courseAssessmentSeed,
+      assessmentForm,
+    );
+    const blob = new Blob([markdown], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `NPDL-${input.unitName}-課程敘述與課前評量.md`.replace(
+      /[\\/:*?"<>|]/g,
+      "-",
+    );
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const printCourseAssessmentSeed = () => {
+    if (!courseAssessmentSeed || !assessmentForm || !assessmentSeedCurrent) {
+      setAssessmentSeedError("請先產生最新的課程敘述語與課前評量。");
+      return;
+    }
+    const markdown = renderCourseAssessmentSeedMarkdown(
+      courseAssessmentSeed,
+      assessmentForm,
+    );
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    if (!popup) {
+      setAssessmentSeedError(
+        "瀏覽器阻擋列印視窗，請允許彈出式視窗後再試一次。",
+      );
+      return;
+    }
+    popup.document.write(`<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>${escapeHtml(
+      input.unitName,
+    )}｜課程敘述與課前評量</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:32px;color:#18181b}pre{white-space:pre-wrap;font:14px/1.75 inherit}h1{font-size:20px}@media print{body{margin:16mm}}</style>
+</head><body><h1>${escapeHtml(
+      input.unitName,
+    )}｜課程敘述與課前評量</h1><pre>${escapeHtml(
+      markdown,
+    )}</pre><script>window.addEventListener("load",()=>window.print())</script></body></html>`);
+    popup.document.close();
+  };
+
   const handoffToAssessment = () => {
     if (
       !alignment ||
@@ -3269,9 +3601,33 @@ export default function CourseIdeationApp({
       !evidencePlan ||
       !evidencePlanConfirmedAt ||
       alignmentAudit.desiredResults !== "current" ||
-      alignmentAudit.evidencePlan !== "current"
+      alignmentAudit.evidencePlan !== "current" ||
+      !assessmentSeedCurrent
     ) {
-      setError("請先確認學習終點並完成評量證據，再帶入評量工作室。");
+      setError(
+        "請先確認學習終點、評量證據，並產生最新的課程敘述語與課前評量。",
+      );
+      return;
+    }
+    if (
+      !unitBlueprint ||
+      !unitBlueprintConfirmedAt ||
+      alignmentAudit.unitBlueprint !== "current"
+    ) {
+      scrollToDesignStep(
+        "learning-design-blueprint",
+        "請先完成最新的單元節次藍圖，再帶入評量工作室。",
+      );
+      return;
+    }
+    setError(null);
+    setHandoffPreviewOpen(true);
+  };
+
+  const confirmHandoffToAssessment = () => {
+    if (!alignment || !assessmentSeedCurrent) {
+      setHandoffPreviewOpen(false);
+      setError("課程端評量資料已變更，請重新檢查後再帶入。");
       return;
     }
     try {
@@ -3287,6 +3643,7 @@ export default function CourseIdeationApp({
         projectId,
       );
       writeJson(KEYS.courseIdeationHandoff, handoff);
+      setHandoffPreviewOpen(false);
       onOpenAssessment(projectForHandoff);
     } catch (caught) {
       setError(toUserErrorMessage(caught));
@@ -4995,7 +5352,7 @@ export default function CourseIdeationApp({
                           className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 py-3 text-sm font-black text-white hover:bg-emerald-800"
                         >
                           <Check className="h-4 w-4" />
-                          確認證據，前往節次藍圖
+                          確認證據，前往課程敘述與課前評量
                         </button>
                       )}
                     </div>
@@ -5030,6 +5387,204 @@ export default function CourseIdeationApp({
                 </section>
 
                 <section
+                  id="learning-design-assessment-seed"
+                  tabIndex={-1}
+                  className="scroll-mt-24 rounded-2xl border border-cyan-200 bg-cyan-50/55 p-5 shadow-sm outline-none focus:ring-2 focus:ring-cyan-400 sm:p-6"
+                >
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-cyan-700">
+                        逆向設計 · 第三步
+                      </p>
+                      <h2 className="mt-1 text-xl font-black text-cyan-950">
+                        課程敘述與課前評量
+                      </h2>
+                      <p className="mt-1 text-xs font-bold leading-6 text-cyan-900/80">
+                        依已確認的課前 Q1–Q4 證據目的，產生四級學習進程與可直接使用的完整課前題組；評量端會唯讀沿用，不再重新生成。
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full px-3 py-1 text-[10px] font-black ${
+                        assessmentSeedCurrent
+                          ? "bg-emerald-100 text-emerald-900"
+                          : courseAssessmentSeed
+                            ? "bg-red-100 text-red-900"
+                            : "bg-zinc-100 text-zinc-600"
+                      }`}
+                    >
+                      {assessmentSeedCurrent
+                        ? "課前評量已對齊"
+                        : courseAssessmentSeed
+                          ? "上游已變更，需重新產生"
+                          : "尚未建立"}
+                    </span>
+                  </div>
+
+                  {assessmentSeedError && (
+                    <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold leading-6 text-red-800">
+                      {assessmentSeedError}
+                    </p>
+                  )}
+
+                  {courseAssessmentSeed &&
+                    assessmentForm &&
+                    assessmentSeedModules.length >= 2 && (
+                      <div className="mt-5 space-y-5">
+                        {!assessmentSeedCurrent && (
+                          <p className="rounded-xl border border-red-200 bg-white px-4 py-3 text-xs font-bold leading-6 text-red-800">
+                            學習終點或評量證據已更新。下列舊內容保留供比較，但不可匯出、帶入評量或用於節次藍圖。
+                          </p>
+                        )}
+
+                        <div className="rounded-2xl border border-cyan-200 bg-white p-3 sm:p-4">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <h3 className="text-sm font-black text-cyan-950">
+                                四級課程敘述語
+                              </h3>
+                              <p className="mt-1 text-[10px] font-bold text-zinc-500">
+                                切換四個進程後，可分別使用「微調此段」進行單卡 AI 修改。
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-cyan-100 px-3 py-1 text-[10px] font-black text-cyan-900">
+                              {courseAssessmentSeed.mode === "teacher_edited"
+                                ? "教師已調整"
+                                : "AI 草稿"}
+                            </span>
+                          </div>
+                          <NarrativeModule
+                            content={assessmentSeedModules[0]}
+                            indicator={selectedIndicator ?? null}
+                            highlightKey={null}
+                            onRefine={
+                              assessmentSeedCurrent
+                                ? (target) => {
+                                    const level = narrativeLevelKey(target.id);
+                                    if (level) {
+                                      openAiRevision({
+                                        kind: "course_narrative_level",
+                                        level,
+                                      });
+                                    }
+                                  }
+                                : undefined
+                            }
+                          />
+                        </div>
+
+                        <div className="rounded-2xl border border-cyan-200 bg-white p-3 sm:p-4">
+                          <h3 className="mb-3 text-sm font-black text-cyan-950">
+                            完整課前 Q1–Q4
+                          </h3>
+                          <AssessmentModule
+                            content={assessmentSeedModules[1]}
+                            type="pre"
+                            accent="teal"
+                            form={assessmentForm}
+                            indicatorName={selectedIndicator?.name ?? ""}
+                            highlightKey={null}
+                            bankIds={new Set<string>()}
+                            q4Invalid={false}
+                            onSaveQuestion={() => undefined}
+                          />
+                        </div>
+
+                        <details className="rounded-xl border border-cyan-200 bg-white">
+                          <summary className="cursor-pointer px-4 py-3 text-sm font-black text-cyan-950">
+                            查看課前與預定課後 Q1–Q4 對齊
+                          </summary>
+                          <div className="grid gap-4 border-t border-cyan-200 p-4 lg:grid-cols-2">
+                            {[
+                              [
+                                "課前正式題組",
+                                courseAssessmentSeed.preMappings,
+                              ],
+                              [
+                                "課後預定證據目的",
+                                courseAssessmentSeed.plannedPostMappings,
+                              ],
+                            ].map(([title, mappings]) => (
+                              <div key={title as string}>
+                                <h4 className="text-xs font-black text-cyan-900">
+                                  {title as string}
+                                </h4>
+                                <div className="mt-2 space-y-2">
+                                  {(
+                                    mappings as CourseAssessmentSeedV1["preMappings"]
+                                  ).map((mapping) => (
+                                    <div
+                                      key={mapping.questionKey}
+                                      className="rounded-lg bg-cyan-50 p-3 text-xs leading-6 text-zinc-700"
+                                    >
+                                      <p className="font-black text-cyan-950">
+                                        {mapping.questionKey.toUpperCase()}｜
+                                        {mapping.purpose}
+                                      </p>
+                                      <p className="mt-1 font-bold text-zinc-500">
+                                        成功指標：
+                                        {mapping.criterionIds.join("、")}｜預期證據：
+                                        {mapping.observableEvidence}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <button
+                            type="button"
+                            onClick={downloadCourseAssessmentSeed}
+                            disabled={!assessmentSeedCurrent}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-4 text-xs font-black text-cyan-950 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <Download className="h-4 w-4" />
+                            下載課前 Markdown
+                          </button>
+                          <button
+                            type="button"
+                            onClick={printCourseAssessmentSeed}
+                            disabled={!assessmentSeedCurrent}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-4 text-xs font-black text-cyan-950 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <FileText className="h-4 w-4" />
+                            列印／另存 PDF
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      evidencePlanConfirmedAt
+                        ? requestAction("assessment_seed")
+                        : scrollToDesignStep(
+                            "learning-design-evidence",
+                            "請先建立、編修並確認評量證據。",
+                          )
+                    }
+                    disabled={busyAction !== null}
+                    className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-800 py-3.5 text-sm font-black text-white hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {busyAction === "assessment_seed" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <BookOpenCheck className="h-4 w-4" />
+                    )}
+                    {busyAction === "assessment_seed"
+                      ? "正在產生課程敘述與課前評量…"
+                      : !evidencePlanConfirmedAt
+                        ? "先建立並確認評量證據"
+                        : courseAssessmentSeed
+                          ? "重新產生並校準課前評量"
+                          : "AI 產生課程敘述與完整課前評量"}
+                  </button>
+                </section>
+
+                <section
                   id="learning-design-blueprint"
                   tabIndex={-1}
                   className="scroll-mt-24 rounded-2xl border border-indigo-200 bg-indigo-50/55 p-5 shadow-sm outline-none focus:ring-2 focus:ring-indigo-400 sm:p-6"
@@ -5037,7 +5592,7 @@ export default function CourseIdeationApp({
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">
-                        逆向設計 · 第三步
+                        逆向設計 · 第四步
                       </p>
                       <h2 className="mt-1 text-xl font-black text-indigo-950">
                         單元節次藍圖
@@ -5154,11 +5709,16 @@ export default function CourseIdeationApp({
                     type="button"
                     onClick={() =>
                       evidencePlanConfirmedAt &&
-                      alignmentAudit.evidencePlan === "current"
+                      alignmentAudit.evidencePlan === "current" &&
+                      assessmentSeedCurrent
                         ? requestAction("blueprint")
                         : scrollToDesignStep(
-                            "learning-design-evidence",
-                            "請先建立、編修並確認評量證據，再產生單元節次藍圖。",
+                            assessmentSeedCurrent
+                              ? "learning-design-evidence"
+                              : "learning-design-assessment-seed",
+                            assessmentSeedCurrent
+                              ? "請先建立、編修並確認評量證據，再產生單元節次藍圖。"
+                              : "請先產生最新的課程敘述語與課前評量。",
                           )
                     }
                     disabled={
@@ -5177,6 +5737,8 @@ export default function CourseIdeationApp({
                       : !evidencePlanConfirmedAt ||
                           alignmentAudit.evidencePlan !== "current"
                         ? "先建立並確認評量證據"
+                      : !assessmentSeedCurrent
+                        ? "先產生課程敘述與課前評量"
                       : unitBlueprint
                         ? "重新產生單元節次藍圖"
                         : "AI 產生單元節次藍圖"}
@@ -5784,12 +6346,15 @@ export default function CourseIdeationApp({
                       <h2 className="text-lg font-black text-emerald-950">
                         {alignmentAudit.desiredResults === "current" &&
                         alignmentAudit.evidencePlan === "current" &&
-                        evidencePlanConfirmedAt
+                        evidencePlanConfirmedAt &&
+                        assessmentSeedCurrent &&
+                        alignmentAudit.unitBlueprint === "current" &&
+                        unitBlueprintConfirmedAt
                           ? "已可帶入評量設計"
-                          : "完成終點與證據後可帶入評量"}
+                          : "完成課前評量與節次藍圖後可帶入評量"}
                       </h2>
                       <p className="mt-1 text-xs font-bold leading-6 text-emerald-800">
-                        將帶入年級、學科、課程名稱、課綱原文、學習終點、成功指標與完整證據脈絡；舊 handoff 與現有評量仍可讀取。
+                        將唯讀帶入課程敘述語、完整課前 Q1–Q4、預定課後證據目的與節次藍圖；確認預覽不會呼叫 AI。
                       </p>
                     </div>
                     <button
@@ -5798,7 +6363,10 @@ export default function CourseIdeationApp({
                       disabled={
                         alignmentAudit.desiredResults !== "current" ||
                         alignmentAudit.evidencePlan !== "current" ||
-                        !evidencePlanConfirmedAt
+                        !evidencePlanConfirmedAt ||
+                        !assessmentSeedCurrent ||
+                        alignmentAudit.unitBlueprint !== "current" ||
+                        !unitBlueprintConfirmedAt
                       }
                       className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#173f36] px-5 py-3 text-sm font-black text-white hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40"
                     >
@@ -5813,6 +6381,169 @@ export default function CourseIdeationApp({
         </div>
       </main>
 
+      <AnimatePresence>
+        {handoffPreviewOpen &&
+          assessmentDesignContext &&
+          courseAssessmentSeed &&
+          unitBlueprint && (
+            <motion.div
+              className="fixed inset-0 z-[70] flex items-center justify-center bg-zinc-950/45 p-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <motion.div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="handoff-preview-title"
+                initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                className="flex max-h-[90dvh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-2xl"
+              >
+                <div className="flex items-start justify-between gap-4 border-b border-emerald-100 px-5 py-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                      不呼叫 AI · 唯讀交接預覽
+                    </p>
+                    <h2
+                      id="handoff-preview-title"
+                      className="mt-1 text-xl font-black text-emerald-950"
+                    >
+                      確認帶入評量設計的內容
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHandoffPreviewOpen(false)}
+                    className="rounded-lg border border-zinc-200 p-2 text-zinc-500 hover:bg-zinc-50"
+                    aria-label="關閉交接預覽"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 space-y-4 overflow-y-auto p-5 custom-scrollbar">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {[
+                      [
+                        "課綱與成功指標",
+                        `${assessmentDesignContext.curriculum.length} 項課綱 · ${assessmentDesignContext.successCriteria.length} 項指標`,
+                      ],
+                      [
+                        "課程敘述與前測",
+                        `4 級敘述 · ${courseAssessmentSeed.preMappings.length} 題正式前測`,
+                      ],
+                      [
+                        "節次藍圖",
+                        `${unitBlueprint.lessons.length} 節 · ${unitBlueprint.lessons.reduce((sum, lesson) => sum + lesson.minutes, 0)} 分鐘`,
+                      ],
+                    ].map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-xl border border-emerald-100 bg-emerald-50 p-4"
+                      >
+                        <p className="text-[10px] font-black text-emerald-700">
+                          {label}
+                        </p>
+                        <p className="mt-1 text-sm font-black text-emerald-950">
+                          {value}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <details
+                    open
+                    className="rounded-xl border border-zinc-200 bg-white"
+                  >
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-black text-zinc-800">
+                      課綱、學習終點與真實總結任務
+                    </summary>
+                    <div className="space-y-3 border-t border-zinc-100 p-4 text-xs leading-6 text-zinc-700">
+                      {assessmentDesignContext.curriculum.map((entry) => (
+                        <p key={entry.id}>
+                          <span className="font-black">{entry.code}</span>｜
+                          {entry.text}
+                        </p>
+                      ))}
+                      <div className="rounded-lg bg-zinc-50 p-3">
+                        <p className="font-black">成功指標</p>
+                        {assessmentDesignContext.successCriteria.map(
+                          (criterion) => (
+                            <p key={criterion.id}>
+                              {criterion.id}｜{criterion.text}
+                            </p>
+                          ),
+                        )}
+                      </div>
+                      {assessmentDesignContext.performanceTask && (
+                        <p className="rounded-lg bg-amber-50 p-3">
+                          <span className="font-black">真實總結任務：</span>
+                          {
+                            assessmentDesignContext.performanceTask
+                              .situation
+                          }
+                          ；成果為
+                          {assessmentDesignContext.performanceTask.product}。
+                        </p>
+                      )}
+                    </div>
+                  </details>
+
+                  <details className="rounded-xl border border-zinc-200 bg-white">
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-black text-zinc-800">
+                      課前 Q1–Q4 與預定課後證據目的
+                    </summary>
+                    <div className="grid gap-3 border-t border-zinc-100 p-4 sm:grid-cols-2">
+                      {[
+                        ["課前", courseAssessmentSeed.preMappings],
+                        ["課後", courseAssessmentSeed.plannedPostMappings],
+                      ].map(([label, mappings]) => (
+                        <div key={label as string}>
+                          <p className="text-xs font-black text-zinc-800">
+                            {label as string}
+                          </p>
+                          <div className="mt-2 space-y-2">
+                            {(
+                              mappings as CourseAssessmentSeedV1["preMappings"]
+                            ).map((mapping) => (
+                              <p
+                                key={mapping.questionKey}
+                                className="rounded-lg bg-zinc-50 p-3 text-xs leading-6 text-zinc-700"
+                              >
+                                <span className="font-black">
+                                  {mapping.questionKey.toUpperCase()}
+                                </span>
+                                ｜{mapping.purpose}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+                <div className="grid gap-2 border-t border-emerald-100 bg-emerald-50/70 p-4 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setHandoffPreviewOpen(false)}
+                    className="min-h-11 rounded-xl border border-emerald-200 bg-white text-sm font-black text-emerald-900 hover:bg-emerald-50"
+                  >
+                    返回課程設計
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmHandoffToAssessment}
+                    className="min-h-11 rounded-xl bg-[#173f36] text-sm font-black text-white hover:bg-[#0f312a]"
+                  >
+                    確認帶入，前往評量設計
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+      </AnimatePresence>
+
       <ConsentModal
         open={consentOpen}
         provider={providerName(settings.model)}
@@ -5826,6 +6557,8 @@ export default function CourseIdeationApp({
             ? "108 課綱與 6Cs 校準、學習成果生成"
             : pendingAction === "evidence"
               ? "逆向設計評量證據生成"
+              : pendingAction === "assessment_seed"
+                ? "課程敘述語與完整課前評量生成"
               : pendingAction === "blueprint"
                 ? "單元節次藍圖生成"
                 : "核心關鍵字分析"
