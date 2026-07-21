@@ -18,6 +18,7 @@ export interface GenerationOptions {
   structured?: { name: string; schema: Record<string, unknown> };
   cacheKey?: string;
   progressPhase?: GenerationPhase;
+  maxOutputTokens?: number;
 }
 
 interface ResponsesApiPayload {
@@ -290,6 +291,9 @@ export async function generateWithGemini(
   const method = options.onProgress ? "streamGenerateContent" : "generateContent";
   const streamQuery = options.onProgress ? "?alt=sse" : "";
   const generationConfig: Record<string, unknown> = { temperature: 0.7 };
+  if (options.maxOutputTokens) {
+    generationConfig.maxOutputTokens = options.maxOutputTokens;
+  }
   if (options.structured) {
     generationConfig.maxOutputTokens = 32768;
     generationConfig.responseMimeType = "application/json";
