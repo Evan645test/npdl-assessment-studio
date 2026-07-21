@@ -56,6 +56,8 @@ describe("Google Forms Q4 export", () => {
     expect(guided.every((item) => item.questionItem?.question?.textQuestion?.paragraph === true)).toBe(true);
     expect(guided.every((item) => item.description?.includes("先看哪裡"))).toBe(true);
     expect(guided.every((item) => item.description?.includes("可以這樣開始"))).toBe(true);
+    expect(guided.every((item) => item.description?.includes("【題目】"))).toBe(true);
+    expect(guided.every((item) => item.description?.includes("※ 請用 1–2 句話回答。"))).toBe(true);
     expect(guided.every((item) => !item.description?.includes("共同題幹："))).toBe(true);
     expect(items.filter((item) => item.questionItem)).toHaveLength(12);
     for (const [content, type] of [[modules[1], "pre"], [modules[2], "post"]] as const) {

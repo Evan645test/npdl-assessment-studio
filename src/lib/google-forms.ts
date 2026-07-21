@@ -4,6 +4,15 @@ import {
   implementationGroupLabel,
   implementationItemLabel,
 } from "@/lib/assessment-terminology";
+import {
+  enrichMarkdownEmphasis,
+  formBold,
+  formBulletList,
+  formItalic,
+  formLead,
+  formNote,
+  joinFormBlocks,
+} from "@/lib/google-form-rich-text";
 import { parseAssessmentModule, parseGuidedQ4Text } from "@/lib/parse-assessment";
 import { hasStructuredQ4Scaffold } from "@/lib/q4-guidance";
 import type { CourseForm } from "@/types";
@@ -191,7 +200,7 @@ function displayed(value: string, fallback = "未命名項目"): string {
 }
 
 function displayedMultiline(value: string, fallback = "（尚未解析內容）"): string {
-  const cleaned = stripMarkdown(value)
+  const cleaned = enrichMarkdownEmphasis(value)
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/[ \t]+\n/g, "\n")
@@ -204,13 +213,6 @@ function stripOption(value: string): string {
   return displayed(value)
     .replace(/^\(([A-D])\)\s*/, "$1. ")
     .replace(/^([A-D])\s*[:：]\s*/, "$1. ");
-}
-
-function joinDescription(...parts: Array<string | undefined>): string | undefined {
-  const lines = parts
-    .map((part) => part?.trim())
-    .filter((part): part is string => Boolean(part));
-  return lines.length > 0 ? lines.join("\n\n") : undefined;
 }
 
 function pageBreakItem(title: string, description?: string) {
@@ -267,13 +269,26 @@ type GoogleFormItem =
 function formDescription(form: CourseForm, indicatorName: string, type: GoogleFormModule): string {
   const group = implementationGroupLabel(type);
   const itemLabel = type === "pre" ? "診斷一～四" : "遷移一～四";
-  return [
-    `這是 ${form.subject}「${form.activityName}」的${group}。`,
-    `年級：${form.grade}`,
-    `NPDL 子向度：${indicatorName || "未命名指標"}`,
-    "",
-    `作答提醒：${itemLabel}請依序完成；單選題請選最符合你目前想法的一項，長答請用自己的話寫 1–2 句，不必猜標準答案。`,
-  ].join("\n");
+  return (
+    joinFormBlocks(
+      formLead("問卷說明", `這是 ${form.subject}「${form.activityName}」的${group}。`),
+      formLead(
+        "基本資訊",
+        formBulletList([
+          `年級：${form.grade}`,
+          `NPDL 子向度：${indicatorName || "未命名指標"}`,
+        ]),
+      ),
+      formLead(
+        "作答提醒",
+        [
+          `${formBold(itemLabel)}請依序完成。`,
+          "單選題：選最符合你目前想法的一項。",
+          "長答：用自己的話寫 1–2 句，不必猜標準答案。",
+        ].join("\n"),
+      ),
+    ) ?? ""
+  );
 }
 
 function buildModuleItems(content: string, type: GoogleFormModule): GoogleFormItem[] {
@@ -282,25 +297,33 @@ function buildModuleItems(content: string, type: GoogleFormModule): GoogleFormIt
   const items: GoogleFormItem[] = [
     pageBreakItem(
       `開始｜${group}`,
-      type === "pre"
-        ? "請先閱讀作答說明與共用情境，再依序完成診斷一～四。"
-        : "請先閱讀作答說明與共用情境，再依序完成遷移一～四。",
+      formLead(
+        "流程",
+        type === "pre"
+          ? "請先閱讀作答說明與共用情境，再依序完成診斷一～四。"
+          : "請先閱讀作答說明與共用情境，再依序完成遷移一～四。",
+      ),
     ),
     textItem(
       "作答說明",
-      [
-        "一～三題為必填單選，依序對應概念理解、行動應用與生活遷移。",
-        "第四題為引導式簡答，分成相同三個必填長答欄。",
-        "請依你現在的理解作答；沒有唯一標準句子。",
-      ].join("\n"),
+      joinFormBlocks(
+        formLead(
+          "題型",
+          formBulletList([
+            "一～三題：必填單選（概念理解 → 行動應用 → 生活遷移）",
+            "第四題：引導式簡答，三個必填長答欄",
+          ]),
+        ),
+        formNote("請依你現在的理解作答；沒有唯一標準句子。"),
+      ),
     ),
     pageBreakItem(
       "共用情境",
-      "以下情境適用整份問卷。作答時可隨時回到本頁對照。",
+      formLead("提示", "以下情境適用整份問卷。作答時可隨時回到本頁對照。"),
     ),
     textItem(
       `${group}｜情境說明`,
-      parsed.scenario || "（尚未解析共用情境）",
+      formLead("情境", parsed.scenario || "（尚未解析共用情境）"),
     ),
   ];
 
@@ -313,26 +336,35 @@ function buildModuleItems(content: string, type: GoogleFormModule): GoogleFormIt
         items.push(
           pageBreakItem(
             `${q4Label}｜引導式簡答`,
-            "請先閱讀共同題幹，再依三個步驟各用 1–2 句話回答。",
+            formLead(
+              "作答方式",
+              "請先閱讀共同題幹，再依三個步驟各用 1–2 句話回答。",
+            ),
           ),
           textItem(
             "共同題幹",
-            guided.stem || "請依下列三個步驟，說明你目前如何理解與處理這個問題。",
+            formLead(
+              "題幹",
+              guided.stem || "請依下列三個步驟，說明你目前如何理解與處理這個問題。",
+            ),
           ),
         );
         for (const step of guided.steps) {
           const helpers = [
-            step.focusHint ? `先看哪裡\n${step.focusHint}` : undefined,
+            step.focusHint ? formLead("先看哪裡", step.focusHint) : undefined,
             step.sentenceStarter
-              ? `可以這樣開始\n${step.sentenceStarter}`
+              ? formLead("可以這樣開始", formItalic(step.sentenceStarter))
               : undefined,
-            "請用 1–2 句話回答。",
+            formNote("請用 1–2 句話回答。"),
           ];
           items.push(
             paragraphItem(
               `${q4Label}｜步驟 ${step.number} · ${step.label}`,
               true,
-              joinDescription(step.prompt, ...helpers),
+              joinFormBlocks(
+                step.prompt ? formLead("題目", displayedMultiline(step.prompt)) : undefined,
+                ...helpers,
+              ),
             ),
           );
         }
@@ -344,11 +376,14 @@ function buildModuleItems(content: string, type: GoogleFormModule): GoogleFormIt
         // 舊版草稿維持單一長答欄相容性。
         const stem = getQuestionPreviewSummary(question.text, question.rawTitle);
         items.push(
-          pageBreakItem(q4Label, "請用自己的話完成這題開放作答。"),
+          pageBreakItem(
+            q4Label,
+            formLead("作答方式", "請用自己的話完成這題開放作答。"),
+          ),
           paragraphItem(
             formatImplementationQuestionTitle(type, 3, question.rawTitle),
             false,
-            stem || undefined,
+            stem ? formLead("題幹", displayedMultiline(stem)) : undefined,
           ),
         );
       }
@@ -365,12 +400,12 @@ function buildModuleItems(content: string, type: GoogleFormModule): GoogleFormIt
       items.push(
         pageBreakItem(
           title,
-          "請選出最符合你目前想法的一項。",
+          formLead("作答方式", "請選出最符合你目前想法的一項。"),
         ),
         choiceItem(
           title,
           question.options.slice(0, 4).map(stripOption),
-          stem || undefined,
+          stem ? formLead("題幹", displayedMultiline(stem)) : undefined,
         ),
       );
       choiceIndex += 1;
