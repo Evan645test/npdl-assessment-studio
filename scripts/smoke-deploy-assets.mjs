@@ -117,6 +117,15 @@ const checks = [
     deployConfig.includes('"googleOAuthClientId"'),
     "deploy-config.json 缺少 googleOAuthClientId 欄位",
   ],
+  [
+    deployConfig.includes('"buildId"'),
+    "deploy-config.json 缺少 buildId 欄位",
+  ],
+  [html.includes("?v="), "index.html 未加上部署版本 cache busting"],
+  [
+    courseIdeationHtml.includes("?v="),
+    "course-ideation/index.html 未加上部署版本 cache busting",
+  ],
 ];
 
 for (const [passed, message] of checks) {

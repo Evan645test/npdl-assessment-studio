@@ -49,6 +49,26 @@
           },
           true,
         );
+
+        const deployBuildKey = "npdl_deploy_build_id";
+        void fetch(new URL("deploy-config.json", window.location.href), {
+          cache: "no-store",
+        })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((config) => {
+            const remoteBuildId = String(config?.buildId ?? "").trim();
+            if (!remoteBuildId) return;
+            const localBuildId = sessionStorage.getItem(deployBuildKey);
+            if (localBuildId && localBuildId !== remoteBuildId) {
+              sessionStorage.setItem(deployBuildKey, remoteBuildId);
+              const nextUrl = new URL(window.location.href);
+              nextUrl.searchParams.set("_deploy_reload", remoteBuildId);
+              window.location.replace(nextUrl.toString());
+              return;
+            }
+            sessionStorage.setItem(deployBuildKey, remoteBuildId);
+          })
+          .catch(() => {});
       })();
     </script>
   </head>
