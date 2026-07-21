@@ -1357,6 +1357,29 @@ ${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
 - 課後 Q1–Q4 必須使用新資料、新限制或新情境檢查遷移。
 - 學科成功指標規準與 6Cs 官方進程必須分開呈現。`;
 
+const UNIT_WORKSHEET_GEM_INSTRUCTIONS = `你是熟悉台灣 108 課綱、NPDL 深度學習、逆向設計與形成性評量的資深教學設計者。
+請直接在 Gemini Canvas 建立一份繁體中文「全部節次學生學習單與教師判讀指引」文件，一次完成資料中列出的全部節次，不得只產生其中一節，也不得要求教師逐節重新下指令。
+
+本任務只產出學習單與教師判讀指引，不需要完整教案、分段教學流程表或課後反思欄。
+${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
+
+文件固定包含：
+1. 單元與節次總覽（年級、科目、單元、總節數、主要 6Cs 子向度）。
+2. 依節次順序，每一節各產出一份完整「學生學習單」與緊接其後的「教師判讀指引」：
+   - 學生學習單須可直接列印或貼入 Google 文件，包含節次標題、學習目標、學生版成功條件，以及班級、座號、日期的空白欄位；不得填入任何真實學生資料。
+   - 學習單固定分成兩個清楚標示的主區塊，不得合併：
+     A.「知識基礎」：3–5 題，直接對應本節課綱、學科概念與成功指標；由概念辨識逐步進入資料判讀、證據運用與解釋，不得只出記憶抄寫題。
+     B.「NPDL 子向度思考」：3–4 題，只聚焦資料指定的主要 6Cs 子向度；要求學生記錄思考或協作歷程、引用作品或觀察證據說明判斷、連結真實情境，最後依官方四級進程完成自我判讀並提出下一步行動。
+   - 每題要提供明確作答指令、合適的作答形式或空間；若需閱讀資料、表格、案例或數據，必須在學習單內提供足夠且可直接使用的素材，不得引用不存在的附件。
+   - 教師判讀指引置於學生版之後，逐題列出題目目的、對應成功指標、可觀察證據、參考要點或回應特徵，以及未達標時的教學決策；不得把答案混入學生版。
+3. 全單元學習單與成功指標、證據覆蓋對照表。
+
+品質規則：
+- 必須完整產生資料中的每一節，節次不可合併、刪除或新增。
+- 每節都必須有一份學習單，且同時包含「知識基礎」與「NPDL 子向度思考」兩區。
+- 知識基礎題與 NPDL 子向度思考題必須分開判讀，學科成功指標規準不得與 6Cs 官方進程混為一體。
+- 所有課綱代碼、成功指標、節次順序與受控 ID 都是不可改寫的設計錨點；不得虛構學生個資或不存在的附件。`;
+
 function buildLessonWorksheetBriefs(project: LearningDesignProjectV1) {
   if (
     !project.alignment ||
@@ -1516,19 +1539,7 @@ export function buildUnitPromptPackage(
   project: LearningDesignProjectV1,
   now = Date.now(),
 ): LessonPromptPackage {
-  if (
-    project.alignmentAudit.desiredResults !== "current" ||
-    project.alignmentAudit.evidencePlan !== "current" ||
-    project.alignmentAudit.unitBlueprint !== "current" ||
-    !project.evidencePlanConfirmedAt ||
-    !project.unitBlueprintConfirmedAt ||
-    !project.alignment ||
-    !project.desiredResults ||
-    !project.evidencePlan ||
-    !project.unitBlueprint
-  ) {
-    throw new Error("學習終點、評量證據與單元藍圖必須完成校準後才能產生提示詞。");
-  }
+  assertUnitPromptProjectReady(project);
   const context = buildAssessmentDesignContext(project);
   if (!context) throw new Error("學習設計專案缺少必要脈絡。");
   const indicator = getIndicatorById(project.selectedIndicatorId);
@@ -1539,7 +1550,7 @@ ${JSON.stringify(
     course: project.input,
     constraints: project.unitConstraints,
     labContext: buildTaiwanHighSchoolLabPrompt(project.input.subject),
-    unitBlueprint: project.unitBlueprint,
+    unitBlueprint: project.unitBlueprint!,
     curriculum: context.curriculum,
     transferGoals: context.transferGoals,
     enduringUnderstandings: context.enduringUnderstandings,
@@ -1554,18 +1565,18 @@ ${JSON.stringify(
           levels: indicator.levels,
         }
       : { id: project.selectedIndicatorId },
-    fourElementDesign: project.alignment.fourElements,
-    performanceTask: project.evidencePlan.performanceTask,
+    fourElementDesign: project.alignment!.fourElements,
+    performanceTask: project.evidencePlan!.performanceTask,
     assessmentQuestionMaps: context.questionMaps,
     evidenceItems: context.evidenceItems,
-    academicRubric: project.evidencePlan.rubric,
+    academicRubric: project.evidencePlan!.rubric,
     lessonWorksheetBriefs,
   },
   null,
   2,
 )}
 
-請依固定格式，直接在 Canvas 一次產生「${project.input.unitName}」共 ${project.unitBlueprint.lessons.length} 節的完整單元逐節教案，以及每一節各自對應的學生學習單與教師判讀指引。`;
+請依固定格式，直接在 Canvas 一次產生「${project.input.unitName}」共 ${project.unitBlueprint!.lessons.length} 節的完整單元逐節教案，以及每一節各自對應的學生學習單與教師判讀指引。`;
   return {
     version: LESSON_PROMPT_PACKAGE_VERSION,
     projectId: project.id,
@@ -1575,5 +1586,82 @@ ${JSON.stringify(
     gemInstructions: UNIT_GEM_INSTRUCTIONS,
     lessonTaskPrompt: unitTaskPrompt,
     fullPrompt: `${UNIT_GEM_INSTRUCTIONS}\n\n${unitTaskPrompt}`,
+  };
+}
+
+function assertUnitPromptProjectReady(project: LearningDesignProjectV1): void {
+  if (
+    project.alignmentAudit.desiredResults !== "current" ||
+    project.alignmentAudit.evidencePlan !== "current" ||
+    project.alignmentAudit.unitBlueprint !== "current" ||
+    !project.evidencePlanConfirmedAt ||
+    !project.unitBlueprintConfirmedAt ||
+    !project.alignment ||
+    !project.desiredResults ||
+    !project.evidencePlan ||
+    !project.unitBlueprint
+  ) {
+    throw new Error("學習終點、評量證據與單元藍圖必須完成校準後才能產生提示詞。");
+  }
+}
+
+export function buildUnitWorksheetPromptPackage(
+  project: LearningDesignProjectV1,
+  now = Date.now(),
+): LessonPromptPackage {
+  assertUnitPromptProjectReady(project);
+  const context = buildAssessmentDesignContext(project);
+  if (!context) throw new Error("學習設計專案缺少必要脈絡。");
+  const indicator = getIndicatorById(project.selectedIndicatorId);
+  const lessonWorksheetBriefs = buildLessonWorksheetBriefs(project);
+  const worksheetTaskPrompt = `【全部節次學習單任務資料】
+${JSON.stringify(
+  {
+    course: project.input,
+    constraints: project.unitConstraints,
+    labContext: buildTaiwanHighSchoolLabPrompt(project.input.subject),
+    unitArc: project.unitBlueprint!.unitArc,
+    lessons: project.unitBlueprint!.lessons.map((lesson) => ({
+      id: lesson.id,
+      lessonNumber: lesson.lessonNumber,
+      title: lesson.title,
+      minutes: lesson.minutes,
+      learningIntention: lesson.learningIntention,
+      milestone: lesson.milestone,
+      coreTask: lesson.coreTask,
+      formativeCheck: lesson.formativeCheck,
+      criterionIds: lesson.criterionIds,
+      outcomeIds: lesson.outcomeIds,
+      evidenceItemIds: lesson.evidenceItemIds,
+    })),
+    curriculum: context.curriculum,
+    outcomes: context.outcomes,
+    successCriteria: context.successCriteria,
+    primaryCompetency: indicator
+      ? {
+          id: indicator.id,
+          dimension: indicator.dimension,
+          name: indicator.name,
+          levels: indicator.levels,
+        }
+      : { id: project.selectedIndicatorId },
+    fourElementDesign: project.alignment!.fourElements,
+    evidenceItems: context.evidenceItems,
+    lessonWorksheetBriefs,
+  },
+  null,
+  2,
+)}
+
+請依固定格式，直接在 Canvas 一次產生「${project.input.unitName}」共 ${project.unitBlueprint!.lessons.length} 節的全部學生學習單與教師判讀指引；不要產生教案流程表。`;
+  return {
+    version: LESSON_PROMPT_PACKAGE_VERSION,
+    projectId: project.id,
+    lessonId: "unit-worksheets",
+    target: "gemini_canvas",
+    generatedAt: now,
+    gemInstructions: UNIT_WORKSHEET_GEM_INSTRUCTIONS,
+    lessonTaskPrompt: worksheetTaskPrompt,
+    fullPrompt: `${UNIT_WORKSHEET_GEM_INSTRUCTIONS}\n\n${worksheetTaskPrompt}`,
   };
 }

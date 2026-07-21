@@ -85,11 +85,6 @@ import {
   type CourseRevisionParent,
 } from "@/lib/course-ai-revision";
 import {
-  copyTextToClipboard,
-  downloadTextFile,
-  openGeminiCanvasWindow,
-} from "@/lib/gemini-canvas-launch";
-import {
   buildLessonReferenceAnalysisPrompt,
   buildLessonReferenceRepairPrompt,
   extractLessonReferenceText,
@@ -97,17 +92,14 @@ import {
   parseLessonReferenceAnalysis,
   type ExtractedLessonReference,
 } from "@/lib/lesson-reference";
-import {
-  buildUnitCanvasDownloadFileName,
-  generateUnitCanvasDocument,
-  resolveUnitCanvasGenerationModel,
-} from "@/lib/unit-canvas-generation";
+import { launchUnitWorksheetsInCanvas } from "@/lib/unit-canvas-generation";
 import {
   buildDesiredResults,
   buildAssessmentDesignContext,
   buildEvidencePlanPrompt,
   buildEvidencePlanRepairPrompt,
   buildUnitPromptPackage,
+  buildUnitWorksheetPromptPackage,
   buildUnitBlueprintPrompt,
   buildUnitBlueprintRepairPrompt,
   DEFAULT_UNIT_CONSTRAINTS,
@@ -4002,9 +3994,18 @@ export default function CourseIdeationApp({
     setError(null);
   };
 
+  const createWorksheetPromptPackage = (): LessonPromptPackage | null => {
+    try {
+      return buildUnitWorksheetPromptPackage(currentProject);
+    } catch (caught) {
+      setError(toUserErrorMessage(caught));
+      return null;
+    }
+  };
+
   const openGeminiCanvasAndGenerate = async () => {
     if (!canvasReady || canvasGenerating) return;
-    const promptPackage = createPromptPackage();
+    const promptPackage = createWorksheetPromptPackage();
     if (!promptPackage || !unitBlueprint) return;
 
     setCanvasGenerating(true);
@@ -4012,46 +4013,26 @@ export default function CourseIdeationApp({
     setError(null);
 
     try {
-      const hasGeminiKey = Boolean(settings.geminiKey.trim());
-      if (hasGeminiKey) {
-        setCopyNotice("正在透過 Gemini 產生完整教案與學習單…");
-        const model = resolveUnitCanvasGenerationModel(settings.model);
-        const generated = await generateUnitCanvasDocument({
-          prompt: promptPackage.fullPrompt,
-          geminiKey: settings.geminiKey,
-          model,
-          onProgress: (progress) => {
-            setCopyNotice(
-              `正在產生完整教案與學習單…（已收到 ${progress.receivedChars.toLocaleString()} 字）`,
-            );
-          },
-        });
-        downloadTextFile(
-          generated,
-          buildUnitCanvasDownloadFileName(
-            input.unitName,
-            unitBlueprint.lessons.length,
-          ),
-        );
-        await copyTextToClipboard(generated);
-        openGeminiCanvasWindow();
-        updateLessonPromptStatus("unit-all", {
-          generatedExternally: true,
-          lastCopiedAt: Date.now(),
-        });
-        setCopyNotice(
-          "完整教案與學習單已產生、下載並複製；Gemini Canvas 已開啟，可直接貼上編修。",
-        );
-      } else {
-        await copyTextToClipboard(promptPackage.fullPrompt);
-        openGeminiCanvasWindow();
-        updateLessonPromptStatus("unit-all", {
-          lastCopiedAt: Date.now(),
-        });
-        setCopyNotice(
-          "完整提示詞已複製，Gemini Canvas 已開啟。請貼上（⌘V / Ctrl+V）後 Enter 開始產生；若需一鍵產生請在設定中填入 Gemini API Key。",
-        );
+      if (settings.geminiKey.trim()) {
+        setCopyNotice("正在透過 Gemini 產生全部節次學習單…");
       }
+      const result = await launchUnitWorksheetsInCanvas({
+        prompt: promptPackage.fullPrompt,
+        unitName: input.unitName,
+        lessonCount: unitBlueprint.lessons.length,
+        geminiKey: settings.geminiKey,
+        model: settings.model,
+        onProgress: (progress) => {
+          setCopyNotice(
+            `正在產生全部節次學習單…（已收到 ${progress.receivedChars.toLocaleString()} 字）`,
+          );
+        },
+      });
+      updateLessonPromptStatus("unit-all", {
+        generatedExternally: result.mode === "generated",
+        lastCopiedAt: Date.now(),
+      });
+      setCopyNotice(result.message);
     } catch (caught) {
       setError(toUserErrorMessage(caught));
       setCopyNotice(null);
@@ -7650,7 +7631,7 @@ export default function CourseIdeationApp({
                           : "完成診斷題組與節次藍圖後可帶入評量"}
                       </h2>
                       <p className="mt-1 max-w-3xl text-xs font-bold leading-6 text-emerald-800">
-                        Gemini Canvas 完整提示詞與評量工作室交接集中在這裡；「開啟 Canvas 並產生」會開啟 Canvas、帶入提示詞，並在有 API Key 時直接產生全部教案與學習單。
+                        Gemini Canvas 完整提示詞與評量工作室交接集中在這裡；「開啟 Canvas 產生學習單」會開啟 Canvas 並帶入學習單提示詞，有 API Key 時可直接產生全部節次學習單。
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -7724,7 +7705,7 @@ export default function CourseIdeationApp({
                             ) : (
                               <ExternalLink className="h-4 w-4" />
                             )}
-                            {canvasGenerating ? "正在產生…" : "開啟 Canvas 並產生"}
+                            {canvasGenerating ? "正在產生…" : "開啟 Canvas 產生學習單"}
                           </button>
                         </div>
                         <button

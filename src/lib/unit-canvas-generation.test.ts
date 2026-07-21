@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildUnitCanvasDownloadFileName,
+  buildUnitWorksheetDownloadFileName,
   resolveUnitCanvasGenerationModel,
   UNIT_CANVAS_GENERATION_MODEL,
 } from "@/lib/unit-canvas-generation";
@@ -14,9 +14,9 @@ describe("unit-canvas-generation", () => {
     expect(resolveUnitCanvasGenerationModel("gpt-4.1")).toBe(UNIT_CANVAS_GENERATION_MODEL);
   });
 
-  it("builds a safe download file name", () => {
-    expect(buildUnitCanvasDownloadFileName("反應速率", 4)).toBe(
-      "NPDL-反應速率-4節完整教案與學習單.md",
+  it("builds worksheet download file names", () => {
+    expect(buildUnitWorksheetDownloadFileName("反應速率", 4)).toBe(
+      "NPDL-反應速率-4節學習單與判讀指引.md",
     );
   });
 });
