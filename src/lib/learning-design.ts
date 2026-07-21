@@ -462,9 +462,9 @@ ${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
 ${JSON.stringify(input, null, 2)}
 
 ${lessonReference
-  ? `【教師確認採用的既有教案參考】
+  ? `【教師確認採用的既有教案參考｜來源為既有課程 NPDL 轉換】
 ${JSON.stringify(lessonReference, null, 2)}
-只能沿用其中可行的活動、評量構想、資源、限制與差異化支持；不得取代成功指標或受控課綱。
+只能沿用其中可行的活動、評量構想、資源、限制與差異化支持；不得取代成功指標或受控課綱。輸出須改寫成符合 NPDL 與逆向設計的敘述，不可照抄原教案活動清單。
 
 `
   : ""}
@@ -854,9 +854,9 @@ ${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
 ${JSON.stringify(input, null, 2)}
 
 ${lessonReference
-  ? `【教師確認採用的既有教案參考】
+  ? `【教師確認採用的既有教案參考｜來源為既有課程 NPDL 轉換】
 ${JSON.stringify(lessonReference, null, 2)}
-優先在不破壞學習終點與評量證據的前提下沿用，並遵守其中的現場限制。
+優先在不破壞學習終點與評量證據的前提下沿用，並遵守其中的現場限制；輸出須符合 NPDL 敘述，不可照抄原教案。
 
 `
   : ""}

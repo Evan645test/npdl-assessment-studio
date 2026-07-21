@@ -604,7 +604,7 @@ export function OutputWorkspace({
                     遷移題組尚未產生
                   </p>
                   <p className="mt-2 text-sm font-bold leading-7 text-cyan-800">
-                    課程敘述語與診斷題組已由課程端唯讀帶入。請在上方補充實際教學差異（可留空），再按「分析課程與診斷題組，產生遷移題組」。
+                    課程敘述語與診斷題組已由課程端唯讀帶入。請在上方填寫「設計差異說明」（可留空），再按產生或改寫課後評量；課後會緊扣課前架構與 plannedPostMappings。
                   </p>
                 </div>
               )}

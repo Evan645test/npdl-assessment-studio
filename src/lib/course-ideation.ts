@@ -925,9 +925,9 @@ ${JSON.stringify(
 )}
 
 ${lessonReference
-  ? `【教師確認採用的既有教案參考】
+  ? `【教師確認採用的既有教案參考｜來源為既有課程 NPDL 轉換】
 ${JSON.stringify(lessonReference, null, 2)}
-只能把這些資料視為可沿用構想或現場限制；不得讓它取代受控課綱或自行補出未提供的事實。`
+只能把這些資料視為可沿用構想或現場限制；不得讓它取代受控課綱或自行補出未提供的事實。輸出須改寫成符合 NPDL 敘述，不可照抄原教案。`
   : ""}
 
 ${buildTaiwanHighSchoolLabPrompt(input.subject)}

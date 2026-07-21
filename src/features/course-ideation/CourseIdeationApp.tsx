@@ -87,6 +87,7 @@ import {
 import {
   buildLessonReferenceAnalysisPrompt,
   buildLessonReferenceRepairPrompt,
+  extractLessonReferenceFromPaste,
   extractLessonReferenceText,
   LESSON_REFERENCE_ANALYSIS_SCHEMA,
   parseLessonReferenceAnalysis,
@@ -142,6 +143,7 @@ import {
   type WorkflowAction,
   type WorkflowStepStatus,
 } from "@/features/course-ideation/CourseWorkflowChrome";
+import { CoursePostAssessmentPanel } from "@/features/course-ideation/CoursePostAssessmentPanel";
 import { toUserErrorMessage } from "@/lib/errors";
 import {
   assessmentExportFingerprint,
@@ -164,6 +166,7 @@ import type {
   CourseAssessmentSeedV1,
   AppliedLessonReference,
   CourseIdeationInput,
+  CourseOriginMode,
   CurriculumEntry,
   CurriculumKind,
   CurriculumSelection,
@@ -188,11 +191,13 @@ export interface CourseIdeationAppProps {
   active?: boolean;
   aiSettings: SharedAiSettings;
   onOpenAiSettings: () => void;
-  onOpenAssessment: (project: LearningDesignProjectV1) => void;
+  /** @deprecated 合併版改同頁進入課後步驟，不再跨工作區交接 */
+  onOpenAssessment?: (project: LearningDesignProjectV1) => void;
   onProjectChange?: (project: LearningDesignProjectV1) => void;
 }
 
 interface CourseIdeationDraft {
+  courseOriginMode?: CourseOriginMode | null;
   input: CourseIdeationInput;
   analysis: KeywordAnalysisResult | null;
   alignment: CourseAlignmentResult | null;
@@ -234,7 +239,8 @@ type CourseDesignTabId =
   | "desired-results"
   | "evidence"
   | "assessment-seed"
-  | "delivery";
+  | "delivery"
+  | "post-assessment";
 
 const drawerSpring = { type: "spring" as const, bounce: 0, duration: 0.3 };
 const tabFade = { duration: 0.2 };
@@ -252,6 +258,21 @@ const DEFAULT_INPUT = createCourseIdeationExampleInput(
 
 const CONSENT_VERSION = 3;
 const DRAFT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
+
+function resolveInitialOriginMode(
+  draft: CourseIdeationDraft | null,
+  project: LearningDesignProjectV1 | null,
+): CourseOriginMode | null {
+  const fromDraft = draft?.courseOriginMode;
+  if (fromDraft === "existing" || fromDraft === "new") return fromDraft;
+  const fromProject = project?.courseOriginMode;
+  if (fromProject === "existing" || fromProject === "new") return fromProject;
+  if (draft?.appliedLessonReference || project?.appliedLessonReference) {
+    return "existing";
+  }
+  if (draft?.analysis || project?.analysis) return "new";
+  return null;
+}
 
 function readDraft(): CourseIdeationDraft | null {
   const draft = readJson<CourseIdeationDraft | null>(
@@ -1490,7 +1511,7 @@ export default function CourseIdeationApp({
   active = true,
   aiSettings: settings,
   onOpenAiSettings,
-  onOpenAssessment,
+  onOpenAssessment: _onOpenAssessment,
   onProjectChange,
 }: CourseIdeationAppProps) {
   const googleOAuth = useGoogleOAuthClientId();
@@ -1505,6 +1526,9 @@ export default function CourseIdeationApp({
       ? project
       : null;
   });
+  const [courseOriginMode, setCourseOriginMode] = useState<CourseOriginMode | null>(
+    () => resolveInitialOriginMode(initialDraft, initialStoredProject),
+  );
   const [input, setInput] = useState<CourseIdeationInput>(
     initialDraft?.input ?? DEFAULT_INPUT,
   );
@@ -1543,6 +1567,7 @@ export default function CourseIdeationApp({
   );
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [referenceBusy, setReferenceBusy] = useState(false);
+  const [lessonPasteDraft, setLessonPasteDraft] = useState("");
   const [customPerformanceDraft, setCustomPerformanceDraft] = useState("");
   const [customContentDraft, setCustomContentDraft] = useState("");
   const [selectedIndicatorId, setSelectedIndicatorId] = useState(
@@ -1763,6 +1788,7 @@ export default function CourseIdeationApp({
       id: projectId,
       createdAt: projectCreatedAt,
       updatedAt: Date.now(),
+      courseOriginMode,
       input,
       analysis,
       alignment,
@@ -1789,6 +1815,7 @@ export default function CourseIdeationApp({
       alignmentAudit,
       analysis,
       appliedLessonReference,
+      courseOriginMode,
       customCurriculumEntries,
       curriculumRecommendation,
       desiredResults,
@@ -2030,6 +2057,7 @@ export default function CourseIdeationApp({
 
   useEffect(() => {
     const draft: CourseIdeationDraft = {
+      courseOriginMode,
       input,
       analysis,
       alignment,
@@ -2060,6 +2088,7 @@ export default function CourseIdeationApp({
     alignment,
     analysis,
     appliedLessonReference,
+    courseOriginMode,
     curriculumSelection,
     curriculumRecommendation,
     customCurriculumEntries,
@@ -2099,6 +2128,67 @@ export default function CourseIdeationApp({
       evidencePlan: evidencePlan ? "stale" : "empty",
       unitBlueprint: unitBlueprint ? "stale" : "empty",
     });
+  };
+
+  const clearCourseProgressForOriginSwitch = () => {
+    setAnalysis(null);
+    setAlignment(null);
+    setCurriculumSelection(null);
+    setCurriculumRecommendation(null);
+    setCustomCurriculumEntries([]);
+    setLessonReferenceAnalysis(null);
+    setAppliedLessonReference(null);
+    setExtractedLessonReference(null);
+    setReferenceFileName("");
+    setReferenceSelection(new Set());
+    setLessonPasteDraft("");
+    setReferenceError(null);
+    setSelectedIndicatorId("");
+    setKeywordDraft("");
+    setEvidencePlan(null);
+    setEvidencePlanConfirmedAt(null);
+    setCourseAssessmentSeed(null);
+    setUnitBlueprint(null);
+    setUnitBlueprintConfirmedAt(null);
+    setLessonPromptStatus([]);
+    setPromptPreview(null);
+    setDesiredResults(null);
+    setDesiredResultsConfirmedAt(null);
+    setAlignmentAudit({
+      desiredResults: "empty",
+      evidencePlan: "empty",
+      unitBlueprint: "empty",
+    });
+    setError(null);
+    setManualDesignTab(false);
+    setActiveDesignTab("alignment");
+  };
+
+  const selectCourseOriginMode = (mode: CourseOriginMode) => {
+    setCourseOriginMode(mode);
+    setError(null);
+    if (mode === "existing") {
+      setInputDrawerOpen(true);
+    }
+  };
+
+  const requestChangeCourseOriginMode = () => {
+    const hasProgress =
+      Boolean(analysis) ||
+      Boolean(appliedLessonReference) ||
+      Boolean(alignment) ||
+      Boolean(courseAssessmentSeed) ||
+      Boolean(unitBlueprint);
+    if (
+      hasProgress &&
+      !window.confirm(
+        "更改「已有／未有課程」方向會清空目前的分析與下游設計（終點、證據、題組、藍圖）。確定要更改嗎？",
+      )
+    ) {
+      return;
+    }
+    clearCourseProgressForOriginSwitch();
+    setCourseOriginMode(null);
   };
 
   const markDesignStaleAfterCurriculumSelectionChange = () => {
@@ -2209,6 +2299,7 @@ export default function CourseIdeationApp({
     setReferenceSelection(new Set());
     setExtractedLessonReference(null);
     setReferenceFileName("");
+    setLessonPasteDraft("");
     if (!file) return;
     setReferenceBusy(true);
     try {
@@ -2222,9 +2313,24 @@ export default function CourseIdeationApp({
     }
   };
 
+  const handleLessonReferencePaste = () => {
+    setReferenceError(null);
+    setLessonReferenceAnalysis(null);
+    setReferenceSelection(new Set());
+    try {
+      const extracted = extractLessonReferenceFromPaste(lessonPasteDraft);
+      setExtractedLessonReference(extracted);
+      setReferenceFileName("貼上的教案文字");
+    } catch (caught) {
+      setExtractedLessonReference(null);
+      setReferenceFileName("");
+      setReferenceError(toUserErrorMessage(caught));
+    }
+  };
+
   const executeLessonReferenceAnalysis = async () => {
     if (!extractedLessonReference) {
-      setReferenceError("請先選擇可讀取的 PDF、DOCX 或 TXT 教案。");
+      setReferenceError("請先上傳教案檔案，或貼上教案文字後再分析。");
       return;
     }
     if (!hasModelAccess) {
@@ -2314,7 +2420,7 @@ export default function CourseIdeationApp({
 
   const requestLessonReferenceAnalysis = () => {
     if (!extractedLessonReference) {
-      setReferenceError("請先選擇可讀取的 PDF、DOCX 或 TXT 教案。");
+      setReferenceError("請先上傳教案檔案，或貼上教案文字後再分析。");
       return;
     }
     if (!hasModelAccess) {
@@ -2397,6 +2503,7 @@ export default function CourseIdeationApp({
       constraints: selectedArray("constraints"),
       differentiationSupports: selectedArray("differentiationSupports"),
     });
+    setCourseOriginMode("existing");
     setInput(nextInput);
     setAnalysis(null);
     setAlignment(null);
@@ -2405,6 +2512,7 @@ export default function CourseIdeationApp({
     setCustomCurriculumEntries([]);
     setExtractedLessonReference(null);
     setReferenceFileName("");
+    setLessonPasteDraft("");
     setSelectedIndicatorId("");
     invalidateDesignAfterEndpointChange();
     setReferenceError(null);
@@ -3421,6 +3529,7 @@ export default function CourseIdeationApp({
   };
 
   const loadTestExample = (exampleId: string) => {
+    setCourseOriginMode("new");
     setInput(createCourseIdeationExampleInput(exampleId));
     setAnalysis(null);
     setAlignment(null);
@@ -3431,6 +3540,7 @@ export default function CourseIdeationApp({
     setAppliedLessonReference(null);
     setExtractedLessonReference(null);
     setReferenceFileName("");
+    setLessonPasteDraft("");
     setReferenceSelection(new Set());
     setSelectedIndicatorId("");
     setKeywordDraft("");
@@ -4214,7 +4324,7 @@ export default function CourseIdeationApp({
     ) {
       scrollToDesignStep(
         "learning-design-blueprint",
-        "請先完成最新的單元節次藍圖，再帶入評量工作室。",
+        "請先完成最新的單元節次藍圖，再進入課後評量。",
       );
       return;
     }
@@ -4225,7 +4335,7 @@ export default function CourseIdeationApp({
   const confirmHandoffToAssessment = () => {
     if (!alignment || !assessmentSeedCurrent) {
       setHandoffPreviewOpen(false);
-      setError("課程端評量資料已變更，請重新檢查後再帶入。");
+      setError("課程端評量資料已變更，請重新檢查後再繼續。");
       return;
     }
     try {
@@ -4234,15 +4344,11 @@ export default function CourseIdeationApp({
         updatedAt: Date.now(),
       };
       writeJson(KEYS.learningDesignProject, projectForHandoff);
-      const handoff = buildCourseIdeationHandoff(
-        input,
-        alignment,
-        selectedIndicatorId,
-        projectId,
-      );
-      writeJson(KEYS.courseIdeationHandoff, handoff);
+      // 合併版不再寫跨工作區 one-shot handoff；保留專案為單一真相。
+      removeStorage(KEYS.courseIdeationHandoff);
       setHandoffPreviewOpen(false);
-      onOpenAssessment(projectForHandoff);
+      setActiveDesignTab("post-assessment");
+      setManualDesignTab(true);
     } catch (caught) {
       setError(toUserErrorMessage(caught));
     }
@@ -4456,7 +4562,7 @@ export default function CourseIdeationApp({
                             onClick: confirmUnitBlueprint,
                           }
                         : {
-                            label: "帶入評量設計",
+                            label: "進入課後評量與匯出",
                             description: "課程敘述語、診斷題組、遷移性四階參照與節次藍圖都已準備好。",
                             icon: ArrowRight,
                             onClick: handoffToAssessment,
@@ -4465,6 +4571,14 @@ export default function CourseIdeationApp({
     [input.grade, input.subject, input.unitName || input.teachingTopic]
       .filter(Boolean)
       .join(" · ") || "尚未完成課程設定";
+  const hasPostAssessment =
+    Boolean(evidencePlan?.assessmentDocument?.post) ||
+    Boolean(currentProject.evidencePlan?.assessmentDocument?.post);
+  const postAssessmentStatus: WorkflowStepStatus = !handoffReady
+    ? "locked"
+    : hasPostAssessment
+      ? "ready"
+      : "ready";
   const recommendedDesignTab: CourseDesignTabId = !analysis || !alignment
     ? "alignment"
     : !desiredResults ||
@@ -4475,7 +4589,9 @@ export default function CourseIdeationApp({
         ? "evidence"
         : !assessmentSeedCurrent
           ? "assessment-seed"
-          : "delivery";
+          : !handoffReady
+            ? "delivery"
+            : "post-assessment";
   const courseTabs = [
     {
       id: "alignment" as const,
@@ -4508,8 +4624,14 @@ export default function CourseIdeationApp({
     {
       id: "delivery" as const,
       label: "節次與交付",
-      status: handoffReady ? "ready" as const : blueprintStatus,
+      status: handoffReady ? ("ready" as const) : blueprintStatus,
       disabled: !assessmentSeedCurrent,
+    },
+    {
+      id: "post-assessment" as const,
+      label: "課後與匯出",
+      status: postAssessmentStatus,
+      disabled: !handoffReady,
     },
   ];
 
@@ -4530,6 +4652,7 @@ export default function CourseIdeationApp({
   return (
     <div
       className={`${embedded ? "h-full" : "h-[100dvh]"} overflow-y-auto bg-[#f3f7f4] text-zinc-900 custom-scrollbar`}
+      aria-label="課程設計工作區"
       aria-hidden={!active}
     >
       {!embedded && <header className="sticky top-0 z-40 border-b border-white/50 bg-[#f3f7f4]/80 px-4 py-3 shadow-[0_1px_12px_rgba(15,45,38,0.06)] backdrop-blur-xl backdrop-saturate-150">
@@ -4559,7 +4682,71 @@ export default function CourseIdeationApp({
       </header>}
 
       <main className="mx-auto max-w-7xl px-4 py-5 sm:py-6">
+        {!courseOriginMode ? (
+          <section
+            aria-label="選擇課程起點"
+            className="mx-auto max-w-3xl rounded-3xl border border-[#dfe8e2] bg-white p-6 shadow-sm sm:p-8"
+          >
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#b7791f]">
+              開始之前
+            </p>
+            <h2 className="mt-2 text-2xl font-black text-[#173f36]">
+              先決定課程方向
+            </h2>
+            <p className="mt-2 text-sm font-medium leading-7 text-zinc-600">
+              兩條路徑最後都會進入同一套 NPDL 構造（課綱／6Cs 校準 → 學習終點 → 評量證據 → 課前題組 → 節次藍圖），再於同頁完成課後遷移與匯出。
+            </p>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => selectCourseOriginMode("existing")}
+                className="flex flex-col items-start gap-3 rounded-2xl border-2 border-[#9fc2b4] bg-[#f7faf8] p-5 text-left transition hover:border-[#2f7d68] hover:bg-emerald-50 active:scale-[0.99]"
+              >
+                <span className="rounded-xl bg-emerald-100 p-2 text-emerald-800">
+                  <FileUp className="h-5 w-5" />
+                </span>
+                <span className="text-base font-black text-[#173f36]">
+                  已有課程
+                </span>
+                <span className="text-xs font-medium leading-6 text-zinc-600">
+                  上傳或貼上既有教案，轉換成符合 NPDL 敘述方式的課程設計。
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => selectCourseOriginMode("new")}
+                className="flex flex-col items-start gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-5 text-left transition hover:border-amber-400 hover:bg-amber-50 active:scale-[0.99]"
+              >
+                <span className="rounded-xl bg-amber-100 p-2 text-amber-900">
+                  <Lightbulb className="h-5 w-5" />
+                </span>
+                <span className="text-base font-black text-[#173f36]">
+                  未有課程
+                </span>
+                <span className="text-xs font-medium leading-6 text-zinc-600">
+                  從核心關鍵字發想，設計符合 NPDL 敘述的全新課程。
+                </span>
+              </button>
+            </div>
+          </section>
+        ) : (
+          <>
         <div className="mb-6 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#dfe8e2] bg-white/80 px-4 py-2.5">
+            <p className="text-xs font-black text-[#173f36]">
+              目前方向：
+              {courseOriginMode === "existing"
+                ? "已有課程 → 轉換為 NPDL 敘述"
+                : "未有課程 → 關鍵字發想"}
+            </p>
+            <button
+              type="button"
+              onClick={requestChangeCourseOriginMode}
+              className="text-[11px] font-black text-[#9a6617] underline"
+            >
+              更改方向
+            </button>
+          </div>
           <NextActionPanel
             action={nextAction}
             summary={currentCourseSummary}
@@ -4580,9 +4767,11 @@ export default function CourseIdeationApp({
                   尚未輸入核心關鍵字
                 </span>
               )}
-              {referenceFileName && (
+              {(referenceFileName || appliedLessonReference) && (
                 <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-900">
-                  已附加教案：{referenceFileName}
+                  {referenceFileName
+                    ? `已附加教案：${referenceFileName}`
+                    : "已帶入既有教案參考"}
                 </span>
               )}
             </div>
@@ -4625,9 +4814,15 @@ export default function CourseIdeationApp({
                 <p className="text-[10px] font-black uppercase tracking-widest text-[#b7791f]">
                   階段一
                 </p>
-                <h2 className="mt-1 text-xl font-black">輸入與啟航</h2>
+                <h2 className="mt-1 text-xl font-black">
+                  {courseOriginMode === "existing"
+                    ? "既有教案 → NPDL 轉換"
+                    : "輸入與啟航"}
+                </h2>
                 <p className="mt-1 text-xs font-bold leading-5 text-zinc-500">
-                  四個課程欄位，加上 3–5 個核心關鍵字。
+                  {courseOriginMode === "existing"
+                    ? "上傳或貼上教案，分析後勾選可沿用內容，再補齊欄位與關鍵字並進入同一 NPDL 構造。"
+                    : "四個課程欄位，加上 3–5 個核心關鍵字，發想符合 NPDL 的課程設計。"}
                 </p>
               </div>
               <div className="relative shrink-0">
@@ -4769,6 +4964,7 @@ export default function CourseIdeationApp({
               </p>
             </div>
 
+            {courseOriginMode === "existing" && (
             <section className="mt-5 rounded-xl border border-[#b9ccc2] bg-[#f7faf8] p-4">
               <div className="flex items-start gap-3">
                 <div className="rounded-lg bg-emerald-100 p-2 text-emerald-800">
@@ -4776,16 +4972,18 @@ export default function CourseIdeationApp({
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 className="text-sm font-black text-[#173f36]">
-                    匯入既有教案
+                    轉換為 NPDL 敘述
                   </h3>
                   <p className="mt-1 text-[11px] font-medium leading-5 text-zinc-600">
-                    接受文字型 PDF、DOCX、UTF-8 TXT，單檔 10 MB。分析前請移除學生姓名與個資；附件文字會傳送到目前選擇的 AI 供應商。
+                    上傳文字型 PDF、DOCX、UTF-8 TXT（單檔 10 MB），或直接貼上教案文字。分析前請移除學生姓名與個資；內容會傳送到目前選擇的 AI 供應商。
                   </p>
                 </div>
               </div>
               <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#9fc2b4] bg-white px-3 py-3 text-xs font-black text-[#175247] hover:bg-emerald-50">
                 <FileText className="h-4 w-4" />
-                {referenceFileName || "選擇一份教案附件"}
+                {referenceFileName && referenceFileName !== "貼上的教案文字"
+                  ? referenceFileName
+                  : "選擇一份教案附件"}
                 <input
                   type="file"
                   accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
@@ -4799,6 +4997,26 @@ export default function CourseIdeationApp({
                   }}
                 />
               </label>
+              <div className="mt-3">
+                <label className="mb-1 block text-[11px] font-black text-zinc-600">
+                  或貼上教案文字
+                </label>
+                <textarea
+                  value={lessonPasteDraft}
+                  onChange={(event) => setLessonPasteDraft(event.target.value)}
+                  rows={5}
+                  placeholder="貼上既有教案、學習目標、活動與評量說明…"
+                  className="w-full resize-y rounded-xl border border-[#dfe8e2] bg-white px-3 py-2 text-xs font-medium leading-6 text-zinc-800 outline-none focus:border-[#2f7d68] focus:ring-2 focus:ring-emerald-100"
+                />
+                <button
+                  type="button"
+                  onClick={handleLessonReferencePaste}
+                  disabled={referenceBusy || !lessonPasteDraft.trim()}
+                  className="mt-2 rounded-xl border border-[#2f7d68] bg-white px-3 py-2 text-[11px] font-black text-[#175247] hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  使用貼上文字
+                </button>
+              </div>
               {extractedLessonReference && (
                 <p className="mt-2 text-[10px] font-bold text-zinc-500">
                   已擷取 {extractedLessonReference.characterCount.toLocaleString()} 字
@@ -4826,13 +5044,13 @@ export default function CourseIdeationApp({
                 ) : (
                   <Sparkles className="h-4 w-4" />
                 )}
-                {referenceBusy ? "正在分析教案…" : "AI 分析可沿用內容"}
+                {referenceBusy ? "正在轉換教案…" : "AI 轉換為 NPDL 可沿用內容"}
               </button>
 
               {lessonReferenceAnalysis && (
                 <div className="mt-4 space-y-3 border-t border-[#dfe8e2] pt-4">
                   <p className="text-xs font-black text-zinc-700">
-                    勾選要帶入後續設計的內容
+                    勾選要帶入後續 NPDL 設計的內容
                   </p>
                   {([
                     ["course:grade", "年級", lessonReferenceAnalysis.inferredCourse.grade],
@@ -4921,16 +5139,17 @@ export default function CourseIdeationApp({
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#173f36] py-2.5 text-xs font-black text-white disabled:opacity-40"
                   >
                     <Check className="h-4 w-4" />
-                    帶入選取內容
+                    帶入並繼續 NPDL 構造
                   </button>
                 </div>
               )}
               {appliedLessonReference && (
                 <p className="mt-3 rounded-lg bg-emerald-100 p-2 text-[11px] font-black text-emerald-900">
-                  已將老師確認的教案參考加入後續課綱、評量與節次藍圖提示。
+                  已將老師確認的教案參考加入後續課綱、評量與節次藍圖提示；請確認欄位與關鍵字後執行關鍵字分析。
                 </p>
               )}
             </section>
+            )}
 
             <button
               type="button"
@@ -6452,7 +6671,7 @@ export default function CourseIdeationApp({
                         課程敘述與診斷題組
                       </h2>
                       <p className="mt-1 text-xs font-bold leading-6 text-cyan-900/80">
-                        依已確認的診斷性四階參照，產生四級學習進程與可直接使用的診斷題組（診斷一～四）；評量端會唯讀沿用，不再重新生成。
+                        依已確認的診斷性四階參照，產生四級學習進程與可直接使用的診斷題組（診斷一～四）。後續課後步驟會唯讀沿用課前，並依「課後遷移對齊」（plannedPostMappings）產生緊密對應的課後題組。
                       </p>
                     </div>
                     <span
@@ -6490,7 +6709,7 @@ export default function CourseIdeationApp({
                       <div className="mt-5 space-y-5">
                         {!assessmentSeedCurrent && (
                           <p className="rounded-xl border border-red-200 bg-white px-4 py-3 text-xs font-bold leading-6 text-red-800">
-                            學習終點或評量證據已更新。下列舊內容保留供比較；仍可下載 Word，但不可帶入評量、節次藍圖或 Google Form。
+                            學習終點或評量證據已更新。下列舊內容保留供比較；仍可下載 Word，但不可進入課後、節次藍圖或 Google Form。
                           </p>
                         )}
 
@@ -6691,7 +6910,7 @@ export default function CourseIdeationApp({
                           )}
                           {canExportDiagnosticDocuments && !assessmentSeedCurrent && (
                             <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold leading-5 text-amber-900">
-                              目前為舊版診斷題組；Word 仍可下載，但建議重新產生後再帶入評量。
+                              目前為舊版診斷題組；Word 仍可下載，但建議重新產生後再進入課後。
                             </p>
                           )}
                           <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -6868,6 +7087,9 @@ export default function CourseIdeationApp({
                             查看四階參照對齊同步狀態
                           </summary>
                           <div className="space-y-3 border-t border-cyan-200 p-4">
+                            <p className="rounded-lg bg-cyan-50 px-3 py-2 text-[11px] font-bold leading-5 text-cyan-950">
+                              課後將依「課後遷移對齊」對應產生，與課前診斷題組緊密結合；進入課後步驟後可再依設計差異說明改寫課後。
+                            </p>
                             {[
                               [
                                 implementationGroupLabel("pre"),
@@ -7627,8 +7849,8 @@ export default function CourseIdeationApp({
                       </p>
                       <h2 className="mt-1 text-xl font-black text-emerald-950">
                         {handoffReady
-                          ? "已可帶入評量設計"
-                          : "完成診斷題組與節次藍圖後可帶入評量"}
+                          ? "已可進入課後與匯出"
+                          : "完成診斷題組與節次藍圖後可進入課後"}
                       </h2>
                       <p className="mt-1 max-w-3xl text-xs font-bold leading-6 text-emerald-800">
                         Gemini Canvas 完整提示詞與評量工作室交接集中在這裡；「開啟 Canvas 產生學習單」會開啟 Canvas 並帶入學習單提示詞，有 API Key 時可直接產生全部節次學習單。
@@ -7732,10 +7954,10 @@ export default function CourseIdeationApp({
 
                     <article className="rounded-xl border border-[#b9ccc2] bg-[#f7faf8] p-4">
                       <h3 className="text-sm font-black text-[#173f36]">
-                        評量工作室
+                        課後評量與匯出
                       </h3>
                       <p className="mt-1 text-xs font-bold leading-6 text-zinc-600">
-                        唯讀帶入課程敘述語、診斷題組、遷移性四階參照與節次藍圖。
+                        確認藍圖後，於下一步產生課後遷移、選填設計差異並匯出或建立 Google Forms。
                       </p>
                       <button
                         type="button"
@@ -7743,18 +7965,36 @@ export default function CourseIdeationApp({
                         disabled={!handoffReady}
                         className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#173f36] px-5 text-sm font-black text-white hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        帶入評量設計
+                        進入課後評量與匯出
                         <ArrowRight className="h-4 w-4" />
                       </button>
                     </article>
                   </div>
                 </section>
                 )}
+
+                {activeDesignTab === "post-assessment" && (
+                  <section
+                    id="course-post-assessment"
+                    className="scroll-mt-24 space-y-4"
+                  >
+                    <CoursePostAssessmentPanel
+                      project={currentProject}
+                      designContext={assessmentDesignContext}
+                      form={assessmentForm}
+                      aiSettings={settings}
+                      onOpenAiSettings={onOpenAiSettings}
+                      ready={handoffReady}
+                    />
+                  </section>
+                )}
               </>
             )}
             </motion.div>
           </AnimatePresence>
         </div>
+          </>
+        )}
       </main>
 
       <AnimatePresence>
@@ -7780,13 +8020,13 @@ export default function CourseIdeationApp({
                 <div className="flex items-start justify-between gap-4 border-b border-emerald-100 px-5 py-4">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
-                      不呼叫 AI · 唯讀交接預覽
+                      不呼叫 AI · 進入下一步
                     </p>
                     <h2
                       id="handoff-preview-title"
                       className="mt-1 text-xl font-black text-emerald-950"
                     >
-                      確認帶入評量設計的內容
+                      確認進入課後評量與匯出
                     </h2>
                   </div>
                   <button
@@ -7908,14 +8148,14 @@ export default function CourseIdeationApp({
                     onClick={() => setHandoffPreviewOpen(false)}
                     className="min-h-11 rounded-xl border border-emerald-200 bg-white text-sm font-black text-emerald-900 hover:bg-emerald-50"
                   >
-                    返回課程設計
+                    返回節次與交付
                   </button>
                   <button
                     type="button"
                     onClick={confirmHandoffToAssessment}
                     className="min-h-11 rounded-xl bg-[#173f36] text-sm font-black text-white hover:bg-[#0f312a]"
                   >
-                    確認帶入，前往評量設計
+                    確認，進入課後與匯出
                   </button>
                 </div>
               </motion.div>
@@ -7936,7 +8176,7 @@ export default function CourseIdeationApp({
           pendingRevisionTarget
             ? `AI 輔助修改${courseCardRevisionLabel(pendingRevisionTarget)}`
             : pendingAction === "reference"
-              ? "分析既有教案附件文字"
+              ? "轉換既有教案為 NPDL 可沿用內容"
             : pendingAction === "align"
             ? "108 課綱與 6Cs 校準、學習成果生成"
             : pendingAction === "evidence"

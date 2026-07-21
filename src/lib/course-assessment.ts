@@ -456,7 +456,7 @@ export function buildAssessmentEvidencePackageMarkdown(input: {
   const notes = input.implementationNotes?.trim()
     ? [
         "",
-        "## 實際教學與原設計不同之處",
+        "## 設計差異說明（課後改寫依據）",
         "",
         input.implementationNotes.trim(),
       ]

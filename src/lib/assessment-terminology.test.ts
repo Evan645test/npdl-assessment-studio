@@ -33,6 +33,8 @@ describe("assessment-terminology", () => {
 
   it("parses question keys", () => {
     expect(questionKeyToIndex("q2")).toBe(1);
+    expect(questionKeyToIndex("pre.q1")).toBe(0);
+    expect(questionKeyToIndex("post.q4")).toBe(3);
   });
 
   it("formats implementation titles without technical suffixes", () => {

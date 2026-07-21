@@ -43,10 +43,10 @@ describe("unified studio settings and routing", () => {
     });
   });
 
-  it("defaults the root workspace to course and supports direct assessment", () => {
+  it("defaults the root workspace to course and ignores legacy assessment query", () => {
     expect(resolveStudioWorkspace("")).toBe("course");
     expect(resolveStudioWorkspace("?workspace=course")).toBe("course");
-    expect(resolveStudioWorkspace("?workspace=assessment")).toBe("assessment");
+    expect(resolveStudioWorkspace("?workspace=assessment")).toBe("course");
     expect(resolveStudioWorkspace("?workspace=unknown")).toBe("course");
   });
 });

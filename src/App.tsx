@@ -328,7 +328,9 @@ export default function App({
                   onGenerate={state.runGenerate}
                   generateLabel={
                     state.courseAlignedMode
-                      ? "分析課程與診斷題組，產生遷移題組"
+                      ? state.implementationNotes.trim()
+                        ? "依設計差異改寫課後評量"
+                        : "沿用課前架構，產生課後評量"
                       : undefined
                   }
                   onJumpStep={handleJumpStep}
@@ -379,7 +381,9 @@ export default function App({
                   onGenerate={state.runGenerate}
                   generateLabel={
                     state.courseAlignedMode
-                      ? "分析課程與診斷題組，產生遷移題組"
+                      ? state.implementationNotes.trim()
+                        ? "依設計差異改寫課後評量"
+                        : "沿用課前架構，產生課後評量"
                       : undefined
                   }
                   onJumpStep={handleJumpStep}
@@ -404,12 +408,13 @@ export default function App({
               <div className="mx-auto flex max-w-5xl flex-col gap-3 lg:flex-row lg:items-end">
                 <label className="min-w-0 flex-1">
                   <span className="text-xs font-black text-cyan-950">
-                    實際教學與原設計不同之處（選填）
+                    設計差異說明（用於改寫課後）
                   </span>
                   <span className="ml-2 text-[10px] font-bold text-cyan-800">
-                    未填時會直接分析課程、診斷題組與節次藍圖
+                    選填；未填時依課前架構與 plannedPost 產生課後評量
                   </span>
                   <textarea
+                    aria-label="設計差異說明（用於改寫課後）"
                     value={state.implementationNotes}
                     onChange={(event) =>
                       state.setImplementationNotes(
@@ -428,10 +433,16 @@ export default function App({
                   className="min-h-12 shrink-0 rounded-xl bg-[#173f36] px-5 text-sm font-black text-white hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {state.generating
-                    ? "正在產生遷移題組…"
-                    : state.assessmentDocument
-                      ? "依最新狀況重新產生遷移題組"
-                      : "分析課程與診斷題組，產生遷移題組"}
+                    ? state.implementationNotes.trim()
+                      ? "正在依設計差異改寫課後…"
+                      : "正在產生課後評量…"
+                    : state.implementationNotes.trim()
+                      ? state.assessmentDocument
+                        ? "依設計差異重新改寫課後評量"
+                        : "依設計差異改寫課後評量"
+                      : state.assessmentDocument
+                        ? "重新產生課後評量"
+                        : "產生課後評量"}
                 </button>
               </div>
             </section>

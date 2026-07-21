@@ -68,8 +68,8 @@ const checks = [
     "主站 runtime 缺少概念理解題幹正規化",
   ],
   [
-    app.includes("自動修復未成功"),
-    "主站 runtime 缺少真實修復狀態文案",
+    app.includes("請先完成課程敘述語與診斷題組，再產生課後評量。"),
+    "合併 App 缺少課後產生前置檢查文案",
   ],
   [
     app.includes("創意孵化與關鍵字提取器"),
@@ -84,11 +84,12 @@ const checks = [
     "合併 App 缺少瀏覽器同意機制",
   ],
   [
-    app.includes("帶入評量設計"),
-    "合併 App 缺少評量設計交接",
+    app.includes("進入課後評量與匯出"),
+    "合併 App 缺少同頁課後步驟入口",
   ],
   [
-    app.includes("課程設計與評量設計共用同一模型與 API Key"),
+    app.includes("課程設計與評量設計共用同一模型與 API Key") ||
+      app.includes("課程設計與評量共用同一模型與 API Key"),
     "合併 App 缺少共用 BYOK 模式說明",
   ],
   [
@@ -107,9 +108,10 @@ const checks = [
   ],
   [
     app.includes("NPDL Studio") &&
-      app.includes("課程設計") &&
-      app.includes("評量設計"),
-    "合併 App 缺少共同工作區殼層",
+      app.includes("課程設計與評量") &&
+      app.includes("單一流程") &&
+      app.includes("課後與匯出"),
+    "合併 App 缺少單一流程殼層",
   ],
   [oldPuterChunk.includes('from "./chunks/index.js"'), "舊版 Puter chunk 相容入口失效"],
   [currentPuterChunk.includes('from "./chunks/index.js"'), "目前 Puter chunk 相容入口失效"],

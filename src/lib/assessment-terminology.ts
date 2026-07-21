@@ -88,7 +88,7 @@ export function evidenceItemTypeLabel(type: string): string {
 }
 
 export function questionKeyToIndex(questionKey: string): number {
-  const match = questionKey.match(/^q(\d)$/i);
+  const match = questionKey.match(/(?:^|\.)q(\d)$/i);
   return match ? Number(match[1]) - 1 : 0;
 }
 

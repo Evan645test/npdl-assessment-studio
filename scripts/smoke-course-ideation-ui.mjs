@@ -425,16 +425,48 @@ const browser = await chromium.launch({
 });
 
 const courseWorkspace = (page) =>
-  page.locator('section[aria-label="課程設計工作區"]');
+  page.locator('[aria-label="課程設計工作區"]');
 
 const nextCourseAction = (page) =>
   courseWorkspace(page).locator('button[aria-label="目前流程下一步"]');
 
-async function openCourseInputDrawer(page) {
+async function ensureNewCourseOrigin(page) {
+  const chooseNew = courseWorkspace(page).getByRole("button", {
+    name: /未有課程/,
+  });
+  if (await chooseNew.isVisible()) {
+    await chooseNew.click();
+  }
+  await courseWorkspace(page)
+    .getByRole("button", { name: "編輯課程輸入", exact: true })
+    .waitFor();
+}
+
+async function ensureExistingCourseOrigin(page) {
+  const chooseExisting = courseWorkspace(page).getByRole("button", {
+    name: /已有課程/,
+  });
+  if (await chooseExisting.isVisible()) {
+    await chooseExisting.click();
+  }
+  await courseWorkspace(page)
+    .getByRole("button", { name: "編輯課程輸入", exact: true })
+    .waitFor();
+}
+
+async function openCourseInputDrawer(page, origin = "new") {
+  if (origin === "existing") {
+    await ensureExistingCourseOrigin(page);
+  } else {
+    await ensureNewCourseOrigin(page);
+  }
+  const drawer = page.getByRole("dialog", { name: "編輯課程輸入" });
+  if (await drawer.isVisible()) {
+    return drawer;
+  }
   await courseWorkspace(page)
     .getByRole("button", { name: "編輯課程輸入", exact: true })
     .click();
-  const drawer = page.getByRole("dialog", { name: "編輯課程輸入" });
   await drawer.waitFor();
   return drawer;
 }
@@ -556,6 +588,7 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   await page.goto(baseUrl, {
     waitUntil: "networkidle",
   });
+  await ensureNewCourseOrigin(page);
   const reviseCard = async ({
     trigger,
     dialogName,
@@ -582,7 +615,8 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     await dialog.getByRole("button", { name: "套用這個版本" }).click();
     await dialog.waitFor({ state: "hidden" });
   };
-  await page.getByRole("button", { name: "課程設計" }).waitFor();
+  await page.getByRole("heading", { name: "NPDL Studio" }).waitFor();
+  await page.getByText("課程設計與評量 · 單一流程", { exact: false }).waitFor();
   await page.getByText("合併版已移除 Puter 免費模型", { exact: false }).waitFor();
   const migratedModels = await page.evaluate(() => ({
     course: localStorage.getItem("npdl_course_ideation_model_v2"),
@@ -1040,67 +1074,53 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
 
   if (verifyHandoff) {
     await courseWorkspace(page)
-      .getByRole("button", { name: "帶入評量設計" })
+      .getByRole("button", { name: "進入課後評量與匯出" })
+      .first()
       .click();
     const handoffDialog = page.getByRole("dialog", {
-      name: "確認帶入評量設計的內容",
+      name: "確認進入課後評量與匯出",
     });
     await handoffDialog.waitFor();
     await handoffDialog
       .getByText("課程敘述與診斷題組", { exact: true })
       .waitFor();
     await handoffDialog
-      .getByRole("button", { name: "確認帶入，前往評量設計" })
+      .getByRole("button", { name: "確認，進入課後與匯出" })
       .click();
-    await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
-    await page
-      .getByText("已唯讀帶入課程敘述語與診斷題組；可直接分析課程與診斷題組，產生遷移題組。", {
-        exact: true,
-      })
+    await courseWorkspace(page)
+      .getByRole("tab", { name: /課後與匯出/ })
       .waitFor();
-    const importedValues = await page.locator("input").evaluateAll((inputs) =>
-      inputs.map((input) => input.value),
-    );
-    for (const expected of [
-      "地理",
-      "全球氣候變遷－極端氣候與校園調適倡議",
-    ]) {
-      if (!importedValues.includes(expected)) {
-        throw new Error(`${name} 評量工作室未帶入欄位：${expected}`);
-      }
-    }
     const retainedHandoff = await page.evaluate(() =>
       localStorage.getItem("npdl_course_ideation_handoff_v1"),
     );
     if (retainedHandoff !== null) {
-      throw new Error(`${name} 評量工作室讀取後未清除一次性交接資料`);
+      throw new Error(`${name} 進入課後後仍殘留一次性交接資料`);
     }
-    const assessmentWorkspace = page.locator(
-      'section[aria-label="評量設計工作區"]',
+    const postPanel = courseWorkspace(page).locator(
+      "#course-post-assessment",
     );
-    await assessmentWorkspace
+    await postPanel
       .getByRole("tab", { name: "診斷題組", exact: true })
       .click();
-    await assessmentWorkspace
+    await postPanel
       .getByText(courseAssessmentSeedResponse.pre.q1.stem, { exact: true })
       .waitFor();
-    await assessmentWorkspace
-      .getByLabel("實際教學與原設計不同之處（選填）")
+    await postPanel
+      .getByLabel("設計差異說明（用於改寫課後）")
       .fill("第三節改用紙本資料，學生需要更多因果推論鷹架。");
-    await assessmentWorkspace
+    await postPanel
       .getByRole("button", {
-        name: "分析課程與診斷題組，產生遷移題組",
+        name: "依設計差異改寫課後評量",
         exact: true,
       })
-      .last()
       .click();
-    await assessmentWorkspace
-      .getByRole("tab", { name: "課後遷移", exact: true })
+    await postPanel
+      .getByRole("tab", { name: "遷移題組", exact: true })
       .click();
-    await assessmentWorkspace
+    await postPanel
       .getByText(postAssessmentResponse.post.q1.stem, { exact: true })
       .waitFor();
-    await assessmentWorkspace
+    await postPanel
       .getByText("完整課程與評量證據包", { exact: true })
       .waitFor();
     await page.screenshot({
@@ -1260,6 +1280,7 @@ async function verifyMalformedResponseBoundary() {
   await page.goto(baseUrl, {
     waitUntil: "networkidle",
   });
+  await ensureNewCourseOrigin(page);
   await nextCourseAction(page).click();
   await page
     .getByText("AI 未產生完整的課程分析，請重試或切換模型。", {
@@ -1400,9 +1421,9 @@ async function verifyLessonReferenceImport() {
     },
   );
   await page.goto(baseUrl, { waitUntil: "networkidle" });
-  const inputDrawer = await openCourseInputDrawer(page);
+  const inputDrawer = await openCourseInputDrawer(page, "existing");
   const importCard = inputDrawer
-    .getByRole("heading", { name: "匯入既有教案" })
+    .getByRole("heading", { name: "轉換為 NPDL 敘述" })
     .locator("xpath=ancestor::section[1]");
   await importCard.locator('input[type="file"]').setInputFiles({
     name: "private-lesson-reference.txt",
@@ -1414,10 +1435,10 @@ async function verifyLessonReferenceImport() {
   });
   await importCard.getByText("已擷取", { exact: false }).waitFor();
   await importCard
-    .getByRole("button", { name: "AI 分析可沿用內容" })
+    .getByRole("button", { name: "AI 轉換為 NPDL 可沿用內容" })
     .click();
   await importCard
-    .getByText("勾選要帶入後續設計的內容", { exact: true })
+    .getByText("勾選要帶入後續 NPDL 設計的內容", { exact: true })
     .waitFor();
   await importCard
     .locator("label")
@@ -1429,11 +1450,14 @@ async function verifyLessonReferenceImport() {
     .filter({ hasText: lessonReferenceAnalysis.assessmentIdeas[0] })
     .locator('input[type="checkbox"]')
     .uncheck();
-  await importCard.getByRole("button", { name: "帶入選取內容" }).click();
+  await importCard.getByRole("button", { name: "帶入並繼續 NPDL 構造" }).click();
   await importCard
-    .getByText("已將老師確認的教案參考加入後續課綱、評量與節次藍圖提示。", {
-      exact: true,
-    })
+    .getByText(
+      "已將老師確認的教案參考加入後續課綱、評量與節次藍圖提示；請確認欄位與關鍵字後執行關鍵字分析。",
+      {
+        exact: true,
+      },
+    )
     .waitFor();
   if (
     (await courseWorkspace(page)
@@ -1493,6 +1517,8 @@ async function verifyUnifiedWorkspaceNavigation() {
   });
   const page = await context.newPage();
   await page.addInitScript(() => {
+    if (sessionStorage.getItem("npdl_smoke_nav_seeded") === "1") return;
+    sessionStorage.setItem("npdl_smoke_nav_seeded", "1");
     localStorage.clear();
     localStorage.setItem(
       "npdl_selected_model",
@@ -1502,45 +1528,28 @@ async function verifyUnifiedWorkspaceNavigation() {
     localStorage.setItem("npdl_draft_dismissed", "1");
   });
   await page.goto(baseUrl, { waitUntil: "networkidle" });
-  const navigation = page.getByRole("navigation", {
-    name: "NPDL Studio 工作區",
-  });
-  await navigation.getByRole("button", { name: "課程設計" }).waitFor();
+  await page.getByRole("heading", { name: "NPDL Studio" }).waitFor();
+  if (
+    await page.getByRole("button", { name: "評量設計", exact: true }).count()
+  ) {
+    throw new Error("合併版不應再顯示頂部評量設計工作區切換");
+  }
   let inputDrawer = await openCourseInputDrawer(page);
   await inputDrawer.getByLabel("單元名稱").fill("切換狀態保留測試");
   await closeCourseInputDrawer(inputDrawer);
 
-  await navigation.getByRole("button", { name: "評量設計" }).click();
-  await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
-  await page.getByText("評量設計工作區", { exact: true }).waitFor();
-  const assessmentValues = await page
-    .locator('section[aria-label="評量設計工作區"] input')
-    .evaluateAll((inputs) => inputs.map((input) => input.value));
-  if (assessmentValues.includes("切換狀態保留測試")) {
-    throw new Error("單純切換工作區不應自動帶入課程資料");
-  }
-  if (
-    await page.evaluate(() =>
-      localStorage.getItem("npdl_course_ideation_handoff_v1"),
-    )
-  ) {
-    throw new Error("單純切換工作區不應建立 handoff");
-  }
-
-  await navigation.getByRole("button", { name: "課程設計" }).click();
-  await page.waitForURL(baseUrl);
+  await page.goto(new URL("?workspace=assessment", baseUrl).toString(), {
+    waitUntil: "networkidle",
+  });
+  await page.waitForFunction(() => !location.search.includes("workspace="));
   inputDrawer = await openCourseInputDrawer(page);
   if (
     (await inputDrawer.getByLabel("單元名稱").inputValue()) !==
     "切換狀態保留測試"
   ) {
-    throw new Error("工作區切換後課程端未提交狀態遺失");
+    throw new Error("清除舊 workspace query 後課程草稿狀態遺失");
   }
   await closeCourseInputDrawer(inputDrawer);
-  await page.goBack();
-  await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
-  await page.goBack();
-  await page.waitForURL(baseUrl);
   await context.close();
 
   const legacyContext = await browser.newContext({
@@ -1552,10 +1561,7 @@ async function verifyUnifiedWorkspaceNavigation() {
     waitUntil: "networkidle",
   });
   await legacyPage.waitForURL(baseUrl);
-  await legacyPage
-    .getByRole("navigation", { name: "NPDL Studio 工作區" })
-    .getByRole("button", { name: "課程設計" })
-    .waitFor();
+  await legacyPage.getByRole("heading", { name: "NPDL Studio" }).waitFor();
   await legacyContext.close();
 }
 
@@ -1590,25 +1596,9 @@ async function verifyLegacyHandoffUpgrade() {
     );
   });
   await page.goto(baseUrl, { waitUntil: "networkidle" });
-  await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
-  await page
-    .getByText("已帶入課程發想結果，請確認推薦子向度後再生成評量。", {
-      exact: true,
-    })
-    .waitFor();
-  if (
-    await page.evaluate(() =>
-      localStorage.getItem("npdl_course_ideation_handoff_v1"),
-    )
-  ) {
-    throw new Error("舊版 handoff 升級後未清除一次性交接資料");
-  }
-  const assessmentValues = await page
-    .locator('section[aria-label="評量設計工作區"] input')
-    .evaluateAll((inputs) => inputs.map((input) => input.value));
-  if (!assessmentValues.includes("舊版課程交接－校園氣候風險")) {
-    throw new Error("舊版 handoff 未帶入合併後的評量工作區");
-  }
+  // 合併版不再依 handoff 切到評量工作區；應停留在單一流程並可進入課程起點。
+  await page.waitForURL(baseUrl);
+  await page.getByRole("heading", { name: "先決定課程方向" }).waitFor();
   await context.close();
 }
 
@@ -1630,7 +1620,7 @@ try {
     false,
   );
 console.log(
-  `合併工作區 UI smoke test 通過：根網址課程預設、分頁／瀏覽器歷史、舊網址轉址、狀態保留、顯式同頁評量交接、8 組多學科範例、教案附件選擇性帶入、完整 108 課綱搜尋多選、四階段單卡 AI 修改與套用、共用 BYOK 模型與金鑰、Puter 遷移、錯誤資訊邊界、完整評量證據、課程敘述與診斷題組、單元節次藍圖、Gemini Canvas、課程與診斷題組分析後的遷移題組、完整評量證據包，以及桌面與手機版均正常。截圖：${outputDir}`,
+  `單一流程 UI smoke test 通過：無雙 tab、舊 workspace query 導回、舊網址轉址、已有／未有分流、同頁課後與匯出、8 組多學科範例、教案轉換、完整 108 課綱搜尋、單卡 AI 修改、共用 BYOK、錯誤邊界、診斷題組、節次藍圖、Canvas、課後遷移與證據包，桌面與手機版均正常。截圖：${outputDir}`,
 );
 } finally {
   await browser.close();

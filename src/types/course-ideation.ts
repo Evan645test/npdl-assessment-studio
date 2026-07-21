@@ -295,6 +295,9 @@ export interface CourseAssessmentSeedV1 {
 
 export type WorkflowState = "empty" | "current" | "stale";
 
+/** 課程工作區入口：已有教案轉換 vs 未有課程發想 */
+export type CourseOriginMode = "existing" | "new";
+
 export interface LessonPromptStatus {
   lessonId: string;
   promptVersion: typeof LESSON_PROMPT_PACKAGE_VERSION;
@@ -307,6 +310,8 @@ export interface LearningDesignProjectV1 {
   id: string;
   createdAt: number;
   updatedAt: number;
+  /** 入口分流；舊草稿可缺省，由 UI 依教案／分析狀態推斷 */
+  courseOriginMode?: CourseOriginMode | null;
   input: CourseIdeationInput;
   analysis: KeywordAnalysisResult | null;
   alignment: CourseAlignmentResult | null;

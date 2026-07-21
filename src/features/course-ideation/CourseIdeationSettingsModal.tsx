@@ -139,7 +139,7 @@ export function CourseIdeationSettingsModal({
                   NPDL Studio AI 設定
                 </h2>
                 <p className="mt-1 text-xs font-bold text-zinc-500">
-                  課程設計與評量設計共用同一模型與 API Key
+                  課程設計與評量共用同一模型與 API Key
                 </p>
               </div>
               <button

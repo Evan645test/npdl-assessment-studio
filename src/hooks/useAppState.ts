@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULT_FORM } from "@/data/constants";
 import { getIndicatorById } from "@/data/indicators";
 import {
-  generateAssessment,
   generatePostAssessment,
   type AssessmentRepairStatus,
 } from "@/lib/assessment-generation";
@@ -244,7 +243,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
       setPendingProjectUpdate(null);
       setDraftPrompt(null);
       setHandoffNotice(
-        "已唯讀帶入課程敘述語與診斷題組；可直接分析課程與診斷題組，產生遷移題組。",
+        "已唯讀帶入課程敘述語與診斷題組；課後將沿用課前架構，可填設計差異後改寫課後評量。",
       );
       localStorage.removeItem(KEYS.draftDismissed);
       removeStorage(KEYS.courseIdeationHandoff);
@@ -365,7 +364,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
       setDraftPrompt(null);
       setHandoffNotice(
         importedCurrentSeed
-          ? "已唯讀帶入課程敘述語與診斷題組；可直接分析課程與診斷題組，產生遷移題組。"
+          ? "已唯讀帶入課程敘述語與診斷題組；課後將沿用課前架構，可填設計差異後改寫課後評量。"
           : "已帶入課程發想結果，請確認推薦子向度後再生成評量。",
       );
       removeStorage(KEYS.courseIdeationHandoff);
@@ -467,9 +466,12 @@ export function useAppState(options: UseAppStateOptions = {}) {
         }
         setGenerationProgress(next);
       };
-      const result =
-        assessmentDesignContext?.courseAssessmentSeed
-          ? await generatePostAssessment({
+      if (!assessmentDesignContext?.courseAssessmentSeed) {
+        throw new Error(
+          "請先在課程流程完成診斷題組後，再產生課後評量。獨立整包評量路徑已停用。",
+        );
+      }
+      const result = await generatePostAssessment({
               form,
               indicator,
               model: settings.model,
@@ -478,17 +480,6 @@ export function useAppState(options: UseAppStateOptions = {}) {
               xaiKey: settings.xaiKey,
               designContext: assessmentDesignContext,
               implementationNotes,
-              onProgress: progress,
-            })
-          : await generateAssessment({
-              form,
-              indicator,
-              pdfExcerpt: pdfExcerpt || undefined,
-              model: settings.model,
-              geminiKey: settings.geminiKey,
-              openaiKey: settings.openaiKey,
-              xaiKey: settings.xaiKey,
-              designContext: assessmentDesignContext,
               onProgress: progress,
             });
 
