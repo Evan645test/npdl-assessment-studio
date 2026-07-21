@@ -18,7 +18,15 @@ const TEST_CLIENT_ID = "123456789-npdltest.apps.googleusercontent.com";
 interface FormRequestItem {
   title?: string;
   description?: string;
-  questionItem?: { question?: { required?: boolean; textQuestion?: { paragraph?: boolean }; choiceQuestion?: unknown } };
+  pageBreakItem?: Record<string, never>;
+  textItem?: Record<string, never>;
+  questionItem?: {
+    question?: {
+      required?: boolean;
+      textQuestion?: { paragraph?: boolean };
+      choiceQuestion?: unknown;
+    };
+  };
 }
 
 function requestItems(requests: ReturnType<typeof buildCreateItemRequests>): FormRequestItem[] {
@@ -31,32 +39,39 @@ describe("Google Forms Q4 export", () => {
   it("exports each new Q4 as three required guided paragraph fields", () => {
     const modules = splitModules(renderAssessmentMarkdown(TEST_ASSESSMENT_DOCUMENT, TEST_FORM));
     const items = requestItems(buildCreateItemRequests(modules[1], modules[2]));
-    const guided = items.filter((item) => /^Q4-[1-3]｜/.test(item.title ?? ""));
+    const guided = items.filter((item) =>
+      /^(診斷|遷移)四｜步驟 [1-3] · /.test(item.title ?? ""),
+    );
 
     expect(guided).toHaveLength(6);
     expect(guided.map((item) => item.title)).toEqual([
-      "Q4-1｜概念理解",
-      "Q4-2｜行動應用",
-      "Q4-3｜生活遷移",
-      "Q4-1｜概念理解",
-      "Q4-2｜行動應用",
-      "Q4-3｜生活遷移",
+      "診斷四｜步驟 1 · 概念理解",
+      "診斷四｜步驟 2 · 行動應用",
+      "診斷四｜步驟 3 · 生活遷移",
+      "遷移四｜步驟 1 · 概念理解",
+      "遷移四｜步驟 2 · 行動應用",
+      "遷移四｜步驟 3 · 生活遷移",
     ]);
     expect(guided.every((item) => item.questionItem?.question?.required === true)).toBe(true);
     expect(guided.every((item) => item.questionItem?.question?.textQuestion?.paragraph === true)).toBe(true);
-    expect(guided.every((item) => item.description?.includes("共同題幹："))).toBe(true);
-    expect(guided.every((item) => item.description?.includes("能力欄位："))).toBe(true);
-    expect(guided.every((item) => item.description?.includes("先看哪裡："))).toBe(true);
-    expect(guided.every((item) => item.description?.includes("可以這樣開始："))).toBe(true);
+    expect(guided.every((item) => item.description?.includes("先看哪裡"))).toBe(true);
+    expect(guided.every((item) => item.description?.includes("可以這樣開始"))).toBe(true);
+    expect(guided.every((item) => !item.description?.includes("共同題幹："))).toBe(true);
     expect(items.filter((item) => item.questionItem)).toHaveLength(12);
     for (const [content, type] of [[modules[1], "pre"], [modules[2], "post"]] as const) {
       const moduleItems = requestItems(buildModuleCreateItemRequests(content, type));
-      expect(moduleItems).toHaveLength(8);
+      expect(moduleItems.filter((item) => item.pageBreakItem)).toHaveLength(6);
       expect(moduleItems.filter((item) => item.questionItem?.question?.choiceQuestion)).toHaveLength(3);
       expect(moduleItems.filter((item) => item.questionItem?.question?.textQuestion)).toHaveLength(3);
-      expect(moduleItems[1].description).toContain(
+      expect(moduleItems.some((item) => item.title === "共同題幹")).toBe(true);
+      expect(
+        moduleItems.find((item) => item.title?.includes("情境說明"))?.description,
+      ).toContain(
         type === "pre" ? "兩盒點心在同一天開始記錄" : "兩組都沿用課堂的觀察表",
       );
+      expect(
+        moduleItems.find((item) => item.questionItem?.question?.choiceQuestion)?.title,
+      ).toMatch(type === "pre" ? /^診斷一/ : /^遷移一/);
     }
   });
 
@@ -74,11 +89,16 @@ describe("Google Forms Q4 export", () => {
   it("keeps one optional paragraph field for legacy Q4 Markdown", () => {
     const modules = splitModules(legacyMarkdown);
     const items = requestItems(buildCreateItemRequests(modules[1], modules[2]));
-    const legacyQ4 = items.filter((item) => /^Q4\. /.test(item.title ?? ""));
+    const legacyQ4 = items.filter(
+      (item) =>
+        Boolean(item.questionItem?.question?.textQuestion) &&
+        /^(診斷|遷移)四/.test(item.title ?? "") &&
+        !/步驟/.test(item.title ?? ""),
+    );
 
     expect(legacyQ4).toHaveLength(2);
     expect(legacyQ4.every((item) => item.questionItem?.question?.required === false)).toBe(true);
-    expect(items.some((item) => /^Q4-[1-3]｜/.test(item.title ?? ""))).toBe(false);
+    expect(items.some((item) => /^(診斷|遷移)四｜步驟 [1-3] · /.test(item.title ?? ""))).toBe(false);
   });
 
   it("authorizes once and creates pre/post forms sequentially", async () => {

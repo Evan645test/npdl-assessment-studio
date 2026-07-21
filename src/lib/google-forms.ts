@@ -1,5 +1,10 @@
+import { getQuestionPreviewSummary } from "@/lib/assessment-teacher-display";
+import {
+  formatImplementationQuestionTitle,
+  implementationGroupLabel,
+  implementationItemLabel,
+} from "@/lib/assessment-terminology";
 import { parseAssessmentModule, parseGuidedQ4Text } from "@/lib/parse-assessment";
-import { implementationGroupLabel } from "@/lib/assessment-terminology";
 import { hasStructuredQ4Scaffold } from "@/lib/q4-guidance";
 import type { CourseForm } from "@/types";
 
@@ -170,37 +175,72 @@ export function getGoogleOAuthClientIdIssue(value: string): string | null {
 }
 
 function stripMarkdown(value: string): string {
-  return value.replace(/^>\s?/gm, "").replace(/\*\*/g, "").replace(/\s+\n/g, "\n").trim();
+  return value
+    .replace(/^>\s?/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/^[•·]\s*/gm, "")
+    .trim();
 }
 
 function displayed(value: string, fallback = "未命名項目"): string {
-  const cleaned = stripMarkdown(value).replace(/\r?\n+/g, " ").replace(/\s+/g, " ").trim();
+  const cleaned = stripMarkdown(value)
+    .replace(/\r?\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || fallback;
+}
+
+function displayedMultiline(value: string, fallback = "（尚未解析內容）"): string {
+  const cleaned = stripMarkdown(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .trim();
   return cleaned || fallback;
 }
 
 function stripOption(value: string): string {
-  return displayed(value).replace(/^\(([A-D])\)\s*/, "$1. ");
+  return displayed(value)
+    .replace(/^\(([A-D])\)\s*/, "$1. ")
+    .replace(/^([A-D])\s*[:：]\s*/, "$1. ");
 }
 
-function questionTitle(rawTitle: string, text: string): string {
-  const title = displayed(rawTitle).replace(/^Q(\d+)\.\s*/, "Q$1. ");
-  const body = displayed(text, "");
-  return body ? `${title} ${body}` : title;
+function joinDescription(...parts: Array<string | undefined>): string | undefined {
+  const lines = parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part));
+  return lines.length > 0 ? lines.join("\n\n") : undefined;
+}
+
+function pageBreakItem(title: string, description?: string) {
+  return {
+    title: displayed(title),
+    description: description ? displayedMultiline(description) : undefined,
+    pageBreakItem: {},
+  };
 }
 
 function textItem(title: string, description?: string) {
-  return { title: displayed(title), description: description?.trim() || undefined, textItem: {} };
-}
-
-function choiceItem(title: string, options: string[]) {
   return {
     title: displayed(title),
+    description: description ? displayedMultiline(description) : undefined,
+    textItem: {},
+  };
+}
+
+function choiceItem(title: string, options: string[], description?: string) {
+  return {
+    title: displayed(title),
+    description: description ? displayedMultiline(description) : undefined,
     questionItem: {
       question: {
         required: true,
         choiceQuestion: {
           type: "RADIO",
-          options: options.map((value, index) => ({ value: displayed(value, `選項 ${index + 1}`) })),
+          options: options.map((value, index) => ({
+            value: displayed(value, `選項 ${index + 1}`),
+          })),
           shuffle: false,
         },
       },
@@ -211,46 +251,129 @@ function choiceItem(title: string, options: string[]) {
 function paragraphItem(title: string, required: boolean, description?: string) {
   return {
     title: displayed(title),
-    description: description?.trim() || undefined,
-    questionItem: { question: { required, textQuestion: { paragraph: true } } },
+    description: description ? displayedMultiline(description) : undefined,
+    questionItem: {
+      question: { required, textQuestion: { paragraph: true } },
+    },
   };
 }
 
-type GoogleFormItem = ReturnType<typeof textItem> | ReturnType<typeof choiceItem> | ReturnType<typeof paragraphItem>;
+type GoogleFormItem =
+  | ReturnType<typeof pageBreakItem>
+  | ReturnType<typeof textItem>
+  | ReturnType<typeof choiceItem>
+  | ReturnType<typeof paragraphItem>;
+
+function formDescription(form: CourseForm, indicatorName: string, type: GoogleFormModule): string {
+  const group = implementationGroupLabel(type);
+  const itemLabel = type === "pre" ? "診斷一～四" : "遷移一～四";
+  return [
+    `這是 ${form.subject}「${form.activityName}」的${group}。`,
+    `年級：${form.grade}`,
+    `NPDL 子向度：${indicatorName || "未命名指標"}`,
+    "",
+    `作答提醒：${itemLabel}請依序完成；單選題請選最符合你目前想法的一項，長答請用自己的話寫 1–2 句，不必猜標準答案。`,
+  ].join("\n");
+}
 
 function buildModuleItems(content: string, type: GoogleFormModule): GoogleFormItem[] {
   const parsed = parseAssessmentModule(content, type);
-  const label = type === "pre" ? "診斷題組" : "遷移題組";
+  const group = implementationGroupLabel(type);
   const items: GoogleFormItem[] = [
+    pageBreakItem(
+      `開始｜${group}`,
+      type === "pre"
+        ? "請先閱讀作答說明與共用情境，再依序完成診斷一～四。"
+        : "請先閱讀作答說明與共用情境，再依序完成遷移一～四。",
+    ),
     textItem(
       "作答說明",
-      "診斷一～三為必填單選題，依序了解概念理解、行動應用與生活遷移；第四題也分成相同三個必填長答欄。請用自己的話作答，不必猜標準句子。",
+      [
+        "一～三題為必填單選，依序對應概念理解、行動應用與生活遷移。",
+        "第四題為引導式簡答，分成相同三個必填長答欄。",
+        "請依你現在的理解作答；沒有唯一標準句子。",
+      ].join("\n"),
     ),
-    textItem(`${label}｜共用情境`, parsed.scenario || "（尚未解析共用情境）"),
+    pageBreakItem(
+      "共用情境",
+      "以下情境適用整份問卷。作答時可隨時回到本頁對照。",
+    ),
+    textItem(
+      `${group}｜情境說明`,
+      parsed.scenario || "（尚未解析共用情境）",
+    ),
   ];
 
+  let choiceIndex = 0;
   for (const question of parsed.questions) {
-    const title = questionTitle(question.rawTitle, question.text);
     if (question.rawTitle.includes("Q4")) {
       const guided = parseGuidedQ4Text(question.text);
+      const q4Label = implementationItemLabel(type, 3);
       if (hasStructuredQ4Scaffold(question.rawTitle, guided.steps)) {
+        items.push(
+          pageBreakItem(
+            `${q4Label}｜引導式簡答`,
+            "請先閱讀共同題幹，再依三個步驟各用 1–2 句話回答。",
+          ),
+          textItem(
+            "共同題幹",
+            guided.stem || "請依下列三個步驟，說明你目前如何理解與處理這個問題。",
+          ),
+        );
         for (const step of guided.steps) {
-          items.push(paragraphItem(
-            `Q4-${step.number}｜${step.label}`,
-            true,
-            `能力欄位：${step.label}\n共同題幹：${guided.stem}\n問題：${step.prompt}\n先看哪裡：${step.focusHint}\n可以這樣開始：${step.sentenceStarter}\n請用 1–2 句話回答。`,
-          ));
+          const helpers = [
+            step.focusHint ? `先看哪裡\n${step.focusHint}` : undefined,
+            step.sentenceStarter
+              ? `可以這樣開始\n${step.sentenceStarter}`
+              : undefined,
+            "請用 1–2 句話回答。",
+          ];
+          items.push(
+            paragraphItem(
+              `${q4Label}｜步驟 ${step.number} · ${step.label}`,
+              true,
+              joinDescription(step.prompt, ...helpers),
+            ),
+          );
         }
       } else if (question.rawTitle.includes("[引導式簡答題]")) {
-        throw new Error(`${label}第四題未通過品質檢查，請重新生成評量後再匯出 Google 問卷。`);
+        throw new Error(
+          `${group}第四題未通過品質檢查，請重新生成評量後再匯出 Google 問卷。`,
+        );
       } else {
         // 舊版草稿維持單一長答欄相容性。
-        items.push(paragraphItem(title, false));
+        const stem = getQuestionPreviewSummary(question.text, question.rawTitle);
+        items.push(
+          pageBreakItem(q4Label, "請用自己的話完成這題開放作答。"),
+          paragraphItem(
+            formatImplementationQuestionTitle(type, 3, question.rawTitle),
+            false,
+            stem || undefined,
+          ),
+        );
       }
       continue;
     }
+
     if (question.options.length >= 4) {
-      items.push(choiceItem(title, question.options.slice(0, 4).map(stripOption)));
+      const title = formatImplementationQuestionTitle(
+        type,
+        choiceIndex,
+        question.rawTitle,
+      );
+      const stem = getQuestionPreviewSummary(question.text, question.rawTitle);
+      items.push(
+        pageBreakItem(
+          title,
+          "請選出最符合你目前想法的一項。",
+        ),
+        choiceItem(
+          title,
+          question.options.slice(0, 4).map(stripOption),
+          stem || undefined,
+        ),
+      );
+      choiceIndex += 1;
     }
   }
   return items;
@@ -401,7 +524,7 @@ async function createOneForm(
               updateFormInfo: {
                 info: {
                   title,
-                  description: `年級：${form.grade}；科目：${form.subject}；活動：${form.activityName}；NPDL 子指標：${indicatorName || "未命名指標"}`,
+                  description: formDescription(form, indicatorName, type),
                 },
                 updateMask: "description",
               },
