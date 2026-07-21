@@ -2,6 +2,8 @@
 
 教師可依年級、科目、課程活動與 NPDL 子向度，產生課前診斷、課後遷移及四層進程判讀資料。Q1–Q4 固定形成「概念理解、行動應用、生活遷移」能力階梯。
 
+**教師使用說明書**：[docs/使用說明書.md](docs/使用說明書.md)｜**10 分鐘速查卡**：[docs/教師10分鐘速查卡.md](docs/教師10分鐘速查卡.md)
+
 ## 統一工作區
 
 根網址預設開啟「課程設計」，可從共同導覽切換至「評量設計」；直接評量網址為 `?workspace=assessment`。兩個工作區會同時保持掛載，單純切換不會覆蓋資料，只有課程端的「帶入評量設計」會更新評量脈絡並切換工作區。舊 `/course-ideation/` 會自動轉到合併首頁。
@@ -56,7 +58,9 @@ Google Cloud 的 OAuth Web Client 必須：
 
 1. 啟用 Google Forms API。
 2. 完成 OAuth 同意畫面。
-3. 將 `https://evan645test.github.io` 加入「已授權的 JavaScript 來源」。
+3. 將 `https://evan645test.github.io` 加入「已授權的 JavaScript 來源」；本機預覽另加 `http://127.0.0.1:4180` 與 `http://localhost:4180`。
+
+完整步驟見 [docs/google-forms-oauth-setup.md](docs/google-forms-oauth-setup.md)。
 
 OAuth Client ID 是公開識別碼，可作為 GitHub Repository variable；不得上傳 Client secret、Google access token 或服務帳戶金鑰。部署完成後，一般使用者只需按下建立問卷、登入 Google 並確認授權。
 

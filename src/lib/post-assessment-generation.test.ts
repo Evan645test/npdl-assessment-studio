@@ -154,7 +154,7 @@ describe("course-aligned post assessment generation", () => {
         },
         generate,
       ),
-    ).rejects.toThrow("請重新產生並帶入最新的課前評量");
+    ).rejects.toThrow("請重新產生並帶入最新的診斷題組");
     expect(generate).not.toHaveBeenCalled();
   });
 

@@ -328,7 +328,7 @@ export default function App({
                   onGenerate={state.runGenerate}
                   generateLabel={
                     state.courseAlignedMode
-                      ? "分析課程與前測，產生課後評量"
+                      ? "分析課程與診斷題組，產生遷移題組"
                       : undefined
                   }
                   onJumpStep={handleJumpStep}
@@ -379,7 +379,7 @@ export default function App({
                   onGenerate={state.runGenerate}
                   generateLabel={
                     state.courseAlignedMode
-                      ? "分析課程與前測，產生課後評量"
+                      ? "分析課程與診斷題組，產生遷移題組"
                       : undefined
                   }
                   onJumpStep={handleJumpStep}
@@ -407,7 +407,7 @@ export default function App({
                     實際教學與原設計不同之處（選填）
                   </span>
                   <span className="ml-2 text-[10px] font-bold text-cyan-800">
-                    未填時會直接分析課程、前測與節次藍圖
+                    未填時會直接分析課程、診斷題組與節次藍圖
                   </span>
                   <textarea
                     value={state.implementationNotes}
@@ -428,10 +428,10 @@ export default function App({
                   className="min-h-12 shrink-0 rounded-xl bg-[#173f36] px-5 text-sm font-black text-white hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {state.generating
-                    ? "正在產生課後評量…"
+                    ? "正在產生遷移題組…"
                     : state.assessmentDocument
-                      ? "依最新狀況重新產生課後評量"
-                      : "分析課程與前測，產生課後評量"}
+                      ? "依最新狀況重新產生遷移題組"
+                      : "分析課程與診斷題組，產生遷移題組"}
                 </button>
               </div>
             </section>

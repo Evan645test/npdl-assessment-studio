@@ -1,4 +1,10 @@
 import type { GenerationPromptParts } from "@/lib/ai/client";
+import {
+  designReferenceLabel,
+  designStageLabel,
+  implementationGroupLabel,
+  questionIdToIndex,
+} from "@/lib/assessment-terminology";
 import type {
   CourseAlignmentResult,
   CourseAssessmentSeedV1,
@@ -298,9 +304,11 @@ export function courseCardRevisionLabel(
     case "performance_task":
       return "真實總結任務";
     case "question_context":
-      return target.phase === "pre" ? "課前診斷情境" : "課後遷移情境";
+      return target.phase === "pre"
+        ? `${implementationGroupLabel("pre")}共用情境`
+        : `${implementationGroupLabel("post")}共用情境`;
     case "question_purpose":
-      return `${target.phase === "pre" ? "課前" : "課後"} ${target.questionId} 證據目的`;
+      return `${designReferenceLabel(target.phase)} · ${designStageLabel(questionIdToIndex(target.questionId))}`;
     case "evidence_item":
       return `證據 ${target.evidenceId}`;
     case "rubric":

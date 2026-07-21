@@ -1,5 +1,11 @@
 import type { ParsedQuestion } from "@/types";
 import {
+  cleanAssessmentDisplayText,
+  cleanGuidedQ4Stem,
+  stripQ4RubricTail,
+  stripTechnicalAssessmentLines,
+} from "@/lib/assessment-teacher-display";
+import {
   GUIDED_Q4_LABELS,
   type GuidedQ4Step,
 } from "@/lib/q4-guidance";
@@ -8,17 +14,10 @@ export { GUIDED_Q4_LABELS } from "@/lib/q4-guidance";
 
 const SCORING_SECTION_MARKER = "【統計規格與總分落點標準】";
 
-export interface GuidedQ4Content {
-  stem: string;
-  steps: [GuidedQ4Step, GuidedQ4Step, GuidedQ4Step] | [];
-  scaffolded: boolean;
-}
-
 function cleanQ4Text(value: string): string {
-  return value
-    .replace(/^>\s?/gm, "")
-    .replace(/\*\*/g, "")
-    .replace(/[「」]/g, "")
+  const stripped = stripTechnicalAssessmentLines(value.replace(/^>\s?/gm, ""));
+  const cleaned = cleanAssessmentDisplayText(stripped);
+  return cleaned
     .replace(/^\s*[:：]\s*/, "")
     .replace(/\s*\n\s*/g, " ")
     .replace(/\s{2,}/g, " ")
@@ -33,6 +32,12 @@ function extractScaffoldField(segment: string, field: "問題" | "先看哪裡" 
     ),
   );
   return cleanQ4Text(match?.[1] ?? "");
+}
+
+export interface GuidedQ4Content {
+  stem: string;
+  steps: [GuidedQ4Step, GuidedQ4Step, GuidedQ4Step] | [];
+  scaffolded: boolean;
 }
 
 export function parseGuidedQ4Text(text: string): GuidedQ4Content {
@@ -50,11 +55,11 @@ export function parseGuidedQ4Text(text: string): GuidedQ4Content {
     };
   });
   if (markers.some((marker) => !marker.match || marker.match.index < 0)) {
-    return { stem: cleanQ4Text(normalized), steps: [], scaffolded: false };
+    return { stem: cleanGuidedQ4Stem(normalized), steps: [], scaffolded: false };
   }
 
   const firstMarker = markers[0].match?.index ?? 0;
-  const stem = cleanQ4Text(normalized.slice(0, firstMarker));
+  const stem = cleanGuidedQ4Stem(normalized.slice(0, firstMarker));
   const parsed = markers.map((marker, index) => {
     const start = (marker.match?.index ?? 0) + (marker.match?.[0].length ?? 0);
     const end = index < 2 ? markers[index + 1].match?.index ?? normalized.length : normalized.length;
@@ -75,7 +80,7 @@ export function parseGuidedQ4Text(text: string): GuidedQ4Content {
     };
   });
   if (parsed.some((step) => !step.prompt)) {
-    return { stem: cleanQ4Text(normalized), steps: [], scaffolded: false };
+    return { stem: cleanGuidedQ4Stem(normalized), steps: [], scaffolded: false };
   }
   const steps = parsed as [GuidedQ4Step, GuidedQ4Step, GuidedQ4Step];
   return {
@@ -83,11 +88,6 @@ export function parseGuidedQ4Text(text: string): GuidedQ4Content {
     steps,
     scaffolded: steps.every((step) => Boolean(step.focusHint && step.sentenceStarter)),
   };
-}
-
-export function stripQ4RubricTail(text: string): string {
-  const idx = text.search(SCORING_SECTION_MARKER);
-  return (idx >= 0 ? text.slice(0, idx) : text).trim();
 }
 
 function normalizeBlockText(text: string): string {

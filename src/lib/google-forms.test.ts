@@ -67,8 +67,8 @@ describe("Google Forms Q4 export", () => {
       "",
     );
 
-    expect(getGoogleFormsExportIssue(malformedPre, modules[2])).toContain("課前診斷 Q4 未通過品質檢查");
-    expect(() => buildCreateItemRequests(malformedPre, modules[2])).toThrow("課前診斷 Q4 未通過品質檢查");
+    expect(getGoogleFormsExportIssue(malformedPre, modules[2])).toContain("診斷題組第四題未通過品質檢查");
+    expect(() => buildCreateItemRequests(malformedPre, modules[2])).toThrow("診斷題組第四題未通過品質檢查");
   });
 
   it("keeps one optional paragraph field for legacy Q4 Markdown", () => {
@@ -115,8 +115,8 @@ describe("Google Forms Q4 export", () => {
     expect(result.post?.status).toBe("complete");
     const preCreate = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     const postCreate = JSON.parse((fetchMock.mock.calls[3][1] as RequestInit).body as string);
-    expect(preCreate.info.title).toBe(`${TEST_FORM.subject}｜${TEST_FORM.activityName}｜課前診斷`);
-    expect(postCreate.info.title).toBe(`${TEST_FORM.subject}｜${TEST_FORM.activityName}｜課後遷移`);
+    expect(preCreate.info.title).toBe(`${TEST_FORM.subject}｜${TEST_FORM.activityName}｜診斷題組`);
+    expect(postCreate.info.title).toBe(`${TEST_FORM.subject}｜${TEST_FORM.activityName}｜遷移題組`);
     expect(fetchMock.mock.calls[2][0]).toBe("https://forms.googleapis.com/v1/forms/pre-id:setPublishSettings");
     expect(fetchMock.mock.calls[5][0]).toBe("https://forms.googleapis.com/v1/forms/post-id:setPublishSettings");
     const publishBody = JSON.parse((fetchMock.mock.calls[2][1] as RequestInit).body as string);

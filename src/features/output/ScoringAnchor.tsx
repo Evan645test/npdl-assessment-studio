@@ -1,9 +1,11 @@
 import { getTierStyle, parseScoringBlock } from "@/lib/parse-scoring";
+import { IMPLEMENTATION_ITEM_LABELS } from "@/lib/assessment-terminology";
 import { t } from "@/locales/zh-Hant";
 
 interface ScoringAnchorProps {
   raw: string;
   accent: "teal" | "violet";
+  phase?: "pre" | "post";
 }
 
 function splitTierDescription(text: string) {
@@ -42,7 +44,7 @@ function parseGrowthGuide(text: string) {
   return { title: title || "淨成長解讀：", items, remainder };
 }
 
-export function ScoringAnchor({ raw, accent }: ScoringAnchorProps) {
+export function ScoringAnchor({ raw, accent, phase = "pre" }: ScoringAnchorProps) {
   const parsed = parseScoringBlock(raw);
   const accentRing = accent === "teal" ? "ring-teal-100" : "ring-indigo-100";
   const accentBadge = accent === "teal" ? "bg-teal-100 text-teal-800" : "bg-indigo-100 text-indigo-800";
@@ -59,7 +61,8 @@ export function ScoringAnchor({ raw, accent }: ScoringAnchorProps) {
         </div>
         {parsed.totalMin !== undefined && parsed.totalMax !== undefined && (
           <span className={`rounded-full px-3 py-1 text-xs font-black ${accentBadge}`}>
-            Q1–Q3 總分 {parsed.totalMin}–{parsed.totalMax} 分
+            {IMPLEMENTATION_ITEM_LABELS[phase].slice(0, 3).join("、")} 總分{" "}
+            {parsed.totalMin}–{parsed.totalMax} 分
           </span>
         )}
       </div>

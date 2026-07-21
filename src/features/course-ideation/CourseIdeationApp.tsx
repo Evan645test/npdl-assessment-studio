@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
   ArrowUp,
@@ -26,7 +26,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { GRADES, SUBJECT_CHIPS } from "@/data/constants";
 import {
   COURSE_IDEATION_EXAMPLES,
@@ -34,6 +34,15 @@ import {
   createCourseIdeationExampleInput,
 } from "@/data/course-ideation-examples";
 import { getIndicatorById } from "@/data/indicators";
+import {
+  designReferenceLabel,
+  designStageWithFocus,
+  evidenceItemTypeLabel,
+  implementationGroupLabel,
+  implementationItemLabel,
+  implementationItemWithFocus,
+  questionKeyToIndex,
+} from "@/lib/assessment-terminology";
 import {
   generateContent,
   type GenerationPromptParts,
@@ -110,13 +119,38 @@ import {
   validateCourseAssessmentSeed,
 } from "@/lib/course-assessment";
 import {
+  renderDiagnosticQuestionsMarkdown,
+  renderDiagnosticTeacherGuideMarkdown,
+} from "@/lib/diagnostic-export-documents";
+import {
   buildCourseAssessmentSeedPrompt,
   buildCourseAssessmentSeedRepairPrompt,
 } from "@/prompts";
 import { splitModules } from "@/lib/markdown";
-import { NarrativeModule } from "@/features/output/NarrativeModule";
-import { AssessmentModule } from "@/features/output/AssessmentModule";
+import { parseNarrativeModule } from "@/lib/parse-narrative";
+import { NarrativeSectionBody } from "@/features/output/NarrativeSectionBody";
+import {
+  AssessmentQuestionDetail,
+  assessmentQuestionPreviewLine,
+} from "@/features/output/AssessmentQuestionDisplay";
+import { parseAssessmentModule } from "@/lib/parse-assessment";
+import {
+  NextActionPanel,
+  SectionStatusBadge,
+  type WorkflowAction,
+  type WorkflowStepStatus,
+} from "@/features/course-ideation/CourseWorkflowChrome";
 import { toUserErrorMessage } from "@/lib/errors";
+import {
+  assessmentExportFingerprint,
+  createGoogleFormsFromAssessment,
+  getGoogleFormsModuleExportIssue,
+  isGoogleFormExportEntryComplete,
+  type GoogleFormsExportRecord,
+} from "@/lib/google-forms";
+import { GoogleFormsSettingsModal } from "@/features/settings/GoogleFormsSettingsModal";
+import { useGoogleOAuthClientId } from "@/hooks/useGoogleOAuthClientId";
+import { downloadTeacherDocumentDocx } from "@/lib/teacher-document-docx";
 import {
   KEYS,
   readJson,
@@ -192,6 +226,23 @@ type AiAction =
   | "assessment_seed"
   | "blueprint"
   | "reference";
+
+type CourseDesignTabId =
+  | "alignment"
+  | "desired-results"
+  | "evidence"
+  | "assessment-seed"
+  | "delivery";
+
+const drawerSpring = { type: "spring" as const, bounce: 0, duration: 0.3 };
+const tabFade = { duration: 0.2 };
+
+type EvidencePanelId =
+  | "performance-task"
+  | "questions"
+  | "evidence-items"
+  | "rubric"
+  | "edit";
 
 const DEFAULT_INPUT = createCourseIdeationExampleInput(
   DEFAULT_COURSE_IDEATION_EXAMPLE_ID,
@@ -297,15 +348,6 @@ function narrativeLevelKey(
   return null;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 function revisionParentForTarget(
   target: CourseCardRevisionTarget,
   values: {
@@ -355,7 +397,7 @@ function CriterionCheckboxes({
   return (
     <fieldset className="mt-3">
       <legend className="text-[10px] font-black uppercase tracking-wide text-zinc-500">
-        對應成功指標
+        引用學習終點的成功指標
       </legend>
       <div className="mt-2 flex flex-wrap gap-2">
         {criteria.map((criterion) => (
@@ -663,8 +705,7 @@ function CurriculumMultiSelect({
           </div>
         ) : (
           <div className="mt-3 rounded-lg border border-dashed border-violet-300 bg-white/70 p-3 text-xs font-bold leading-5 text-violet-800">
-            尚未產生 AI 推薦。請先執行上方的「進行 108
-            課綱與 6Cs 校準」，完成後這裡會固定顯示 5 項推薦供選擇。
+            尚未產生 AI 推薦。請先點選頁面上方的「目前流程下一步」完成校準，這裡會固定顯示 5 項推薦供選擇。
           </div>
         )}
       </div>
@@ -739,6 +780,286 @@ function AiRevisionButton({
       <Sparkles className="h-3.5 w-3.5" />
       {label}
     </button>
+  );
+}
+
+interface ContentDrawerContent {
+  eyebrow: string;
+  title: string;
+  body: ReactNode;
+}
+
+function ContentDrawer({
+  content,
+  onClose,
+}: {
+  content: ContentDrawerContent | null;
+  onClose: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <AnimatePresence>
+      {content && (
+        <motion.div
+          className="fixed inset-0 z-[75] flex justify-end bg-zinc-950/35 p-0 sm:p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={reduceMotion ? tabFade : undefined}
+        >
+          <button
+            type="button"
+            aria-label="關閉內容抽屜"
+            className="absolute inset-0"
+            onClick={onClose}
+          />
+          <motion.aside
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="course-content-drawer-title"
+            className="relative flex h-full w-full max-w-xl flex-col overflow-hidden border-l border-[#dfe8e2] bg-white/95 shadow-2xl backdrop-blur-xl sm:rounded-2xl sm:border"
+            initial={reduceMotion ? { opacity: 0 } : { x: "100%" }}
+            animate={reduceMotion ? { opacity: 1 } : { x: 0 }}
+            exit={reduceMotion ? { opacity: 0 } : { x: "100%" }}
+            transition={reduceMotion ? tabFade : drawerSpring}
+            style={{ transformOrigin: "right center" }}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-[#dfe8e2] px-5 py-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#2f7d68]">
+                  {content.eyebrow}
+                </p>
+                <h2
+                  id="course-content-drawer-title"
+                  className="mt-1 text-lg font-black text-zinc-950"
+                >
+                  {content.title}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-zinc-200 p-2 text-zinc-500 hover:bg-zinc-50"
+                aria-label="關閉內容"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+              {content.body}
+            </div>
+          </motion.aside>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function DrawerText({
+  label,
+  text,
+  onOpen,
+  tone = "amber",
+}: {
+  label: string;
+  text: string;
+  onOpen: (content: ContentDrawerContent) => void;
+  tone?: "amber" | "emerald" | "sky" | "cyan" | "indigo" | "zinc";
+}) {
+  const cleanText = text.trim();
+  const toneClasses = {
+    amber: "border-amber-200 bg-amber-50 text-amber-950",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-950",
+    sky: "border-sky-200 bg-sky-50 text-sky-950",
+    cyan: "border-cyan-200 bg-cyan-50 text-cyan-950",
+    indigo: "border-indigo-200 bg-indigo-50 text-indigo-950",
+    zinc: "border-[#dfe8e2] bg-[#f7faf8] text-zinc-800",
+  };
+  return (
+    <div className={`rounded-lg border p-3 ${toneClasses[tone]}`}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs font-black">{label}</p>
+        <button
+          type="button"
+          onClick={() =>
+            onOpen({
+              eyebrow: "完整內容",
+              title: label,
+              body: (
+                <p className="whitespace-pre-wrap text-sm font-medium leading-7 text-zinc-700">
+                  {cleanText || "（尚無內容）"}
+                </p>
+              ),
+            })
+          }
+          className="shrink-0 rounded-lg border border-black/10 bg-white px-2.5 py-1 text-[10px] font-black text-zinc-700 hover:bg-zinc-50"
+        >
+          查看完整內容
+        </button>
+      </div>
+      <p className="mt-2 line-clamp-2 text-xs font-medium leading-6 text-zinc-700">
+        {cleanText || "（尚無內容）"}
+      </p>
+    </div>
+  );
+}
+
+function EvidenceText({
+  label,
+  text,
+  tone = "amber",
+}: {
+  label: string;
+  text: string;
+  tone?: "amber" | "emerald" | "sky" | "cyan" | "indigo" | "zinc";
+}) {
+  const toneClasses = {
+    amber: "border-amber-200 bg-amber-50 text-amber-950",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-950",
+    sky: "border-sky-200 bg-sky-50 text-sky-950",
+    cyan: "border-cyan-200 bg-cyan-50 text-cyan-950",
+    indigo: "border-indigo-200 bg-indigo-50 text-indigo-950",
+    zinc: "border-[#dfe8e2] bg-[#f7faf8] text-zinc-800",
+  };
+  return (
+    <div className={`rounded-lg border p-3 ${toneClasses[tone]}`}>
+      <p className="text-xs font-black">{label}</p>
+      <p className="mt-2 whitespace-pre-wrap text-xs font-medium leading-6 text-zinc-700">
+        {text.trim() || "（尚無內容）"}
+      </p>
+    </div>
+  );
+}
+
+function CourseTabs({
+  tabs,
+  activeTab,
+  onChange,
+}: {
+  tabs: Array<{
+    id: CourseDesignTabId;
+    label: string;
+    status: WorkflowStepStatus;
+    disabled?: boolean;
+  }>;
+  activeTab: CourseDesignTabId;
+  onChange: (tab: CourseDesignTabId) => void;
+}) {
+  return (
+    <nav
+      aria-label="課程設計分頁"
+      className="rounded-2xl border border-white/60 bg-white/75 p-2 shadow-sm backdrop-blur-xl backdrop-saturate-150"
+    >
+      <div
+        role="tablist"
+        className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar lg:grid lg:grid-cols-5 lg:overflow-visible lg:pb-0"
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            disabled={tab.disabled}
+            onClick={() => onChange(tab.id)}
+            className={`min-h-11 min-w-[8.5rem] rounded-xl border px-3 py-2 text-left text-xs font-black tracking-tight transition active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45 lg:min-w-0 ${
+              activeTab === tab.id
+                ? "border-[#173f36] bg-[#173f36] text-white shadow-sm"
+                : "border-transparent bg-[#f7faf8] text-zinc-600 hover:bg-[#eef4f0] hover:text-zinc-900"
+            }`}
+          >
+            <span className="block tracking-tight">{tab.label}</span>
+            <SectionStatusBadge
+              status={tab.status}
+              label={
+                tab.status === "done"
+                  ? "完成"
+                  : tab.status === "review"
+                    ? "待確認"
+                    : tab.status === "stale"
+                      ? "需更新"
+                      : tab.status === "ready"
+                        ? "可進行"
+                        : tab.status === "working"
+                          ? "進行中"
+                          : "未開放"
+              }
+            />
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function InputDrawer({
+  open,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-[74] flex justify-end bg-zinc-950/35 p-0 sm:p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={reduceMotion ? tabFade : undefined}
+        >
+          <button
+            type="button"
+            aria-label="關閉課程輸入抽屜"
+            className="absolute inset-0"
+            onClick={onClose}
+          />
+          <motion.aside
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="course-input-drawer-title"
+            className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-[#dfe8e2] bg-white/95 shadow-2xl backdrop-blur-xl sm:rounded-2xl sm:border"
+            initial={reduceMotion ? { opacity: 0 } : { x: "100%" }}
+            animate={reduceMotion ? { opacity: 1 } : { x: 0 }}
+            exit={reduceMotion ? { opacity: 0 } : { x: "100%" }}
+            transition={reduceMotion ? tabFade : drawerSpring}
+            style={{ transformOrigin: "right center" }}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-[#dfe8e2] px-5 py-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#b7791f]">
+                  輸入端
+                </p>
+                <h2
+                  id="course-input-drawer-title"
+                  className="mt-1 text-lg font-black text-zinc-950"
+                >
+                  編輯課程輸入
+                </h2>
+                <p className="mt-1 text-xs font-bold leading-5 text-zinc-500">
+                  調整課程欄位、關鍵字與教案附件，不佔用主工作區。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-zinc-200 p-2 text-zinc-500 hover:bg-zinc-50"
+                aria-label="關閉課程輸入"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+              {children}
+            </div>
+          </motion.aside>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -1170,6 +1491,7 @@ export default function CourseIdeationApp({
   onOpenAssessment,
   onProjectChange,
 }: CourseIdeationAppProps) {
+  const googleOAuth = useGoogleOAuthClientId();
   const [initialDraft] = useState(readDraft);
   const [initialStoredProject] = useState(() => {
     const project = readJson<LearningDesignProjectV1 | null>(
@@ -1309,8 +1631,31 @@ export default function CourseIdeationApp({
   const [assessmentSeedError, setAssessmentSeedError] = useState<string | null>(
     null,
   );
+  const [googleFormsSettingsOpen, setGoogleFormsSettingsOpen] = useState(false);
+  const [formsExporting, setFormsExporting] = useState(false);
+  const [formsExportStatus, setFormsExportStatus] = useState<string | null>(
+    null,
+  );
+  const [formsExportRecord, setFormsExportRecord] =
+    useState<GoogleFormsExportRecord | null>(null);
+  const [diagnosticDocExporting, setDiagnosticDocExporting] = useState<
+    "questions" | "guide" | null
+  >(null);
+  const [diagnosticDocStatus, setDiagnosticDocStatus] = useState<string | null>(
+    null,
+  );
   const [blueprintError, setBlueprintError] = useState<string | null>(null);
   const [handoffPreviewOpen, setHandoffPreviewOpen] = useState(false);
+  const [contentDrawer, setContentDrawer] =
+    useState<ContentDrawerContent | null>(null);
+  const [inputDrawerOpen, setInputDrawerOpen] = useState(false);
+  const [activeDesignTab, setActiveDesignTab] =
+    useState<CourseDesignTabId>("alignment");
+  const [manualDesignTab, setManualDesignTab] = useState(false);
+  const reduceMotion = useReducedMotion();
+  const [assessmentNarrativeTab, setAssessmentNarrativeTab] = useState(0);
+  const [evidencePanel, setEvidencePanel] =
+    useState<EvidencePanelId>("performance-task");
 
   const selectedProvider = getCourseIdeationProvider(settings.model);
   const hasModelAccess =
@@ -1489,6 +1834,84 @@ export default function CourseIdeationApp({
         : [],
     [assessmentForm, courseAssessmentSeed],
   );
+  const courseNarrativeSlices = useMemo(
+    () =>
+      assessmentSeedModules[0]
+        ? parseNarrativeModule(
+            assessmentSeedModules[0],
+            selectedIndicator ?? null,
+          ).slices
+        : [],
+    [assessmentSeedModules, selectedIndicator],
+  );
+  const preAssessmentPreview = useMemo(
+    () =>
+      assessmentSeedModules[1]
+        ? parseAssessmentModule(assessmentSeedModules[1], "pre")
+        : null,
+    [assessmentSeedModules],
+  );
+  const diagnosticIndicatorName =
+    selectedIndicator?.name ?? selectedIndicatorId;
+  const preAssessmentContent = assessmentSeedModules[1] ?? "";
+  const canExportDiagnosticDocuments = Boolean(
+    courseAssessmentSeed &&
+      assessmentForm &&
+      preAssessmentContent.trim() &&
+      (preAssessmentPreview?.questions.length ?? 0) > 0,
+  );
+  const diagnosticFormsFingerprint = useMemo(
+    () =>
+      assessmentForm && preAssessmentContent
+        ? assessmentExportFingerprint(
+            assessmentForm,
+            diagnosticIndicatorName,
+            preAssessmentContent,
+            "",
+          )
+        : "",
+    [assessmentForm, diagnosticIndicatorName, preAssessmentContent],
+  );
+  const diagnosticFormsExportIssue = useMemo(() => {
+    if (!preAssessmentContent.trim()) return "尚未產生診斷題組。";
+    if (!assessmentSeedCurrent) {
+      return "學習終點或評量證據已更新，請重新產生診斷題組。";
+    }
+    return getGoogleFormsModuleExportIssue(preAssessmentContent, "pre");
+  }, [assessmentSeedCurrent, preAssessmentContent]);
+  const googleClientId = googleOAuth.clientId;
+  const googleClientIdManaged = googleOAuth.managed;
+  const googleClientIdIssue = googleOAuth.issue;
+
+  useEffect(() => {
+    if (!diagnosticFormsFingerprint || !assessmentForm) {
+      setFormsExportRecord(null);
+      return;
+    }
+    const records = readJson<Record<string, GoogleFormsExportRecord>>(
+      KEYS.googleFormsExports,
+      {},
+    );
+    const preFingerprint = assessmentExportFingerprint(
+      assessmentForm,
+      diagnosticIndicatorName,
+      preAssessmentContent,
+      "",
+    );
+    setFormsExportRecord(
+      records[diagnosticFormsFingerprint] ??
+        Object.values(records).find(
+          (record) => record.preFingerprint === preFingerprint,
+        ) ??
+        null,
+    );
+    setFormsExportStatus(null);
+  }, [
+    assessmentForm,
+    diagnosticFormsFingerprint,
+    diagnosticIndicatorName,
+    preAssessmentContent,
+  ]);
   const pendingPrompt = useMemo(() => {
     if (pendingRevisionTarget && revisionTarget === pendingRevisionTarget) {
       const parent = revisionParentForTarget(pendingRevisionTarget, {
@@ -2049,7 +2472,7 @@ export default function CourseIdeationApp({
     ) {
       scrollToDesignStep(
         "learning-design-evidence",
-        "請先建立、編修並確認評量證據，再產生課程敘述語與課前評量。",
+        "請先建立、編修並確認評量證據，再產生課程敘述語與診斷題組。",
       );
       return;
     }
@@ -2070,7 +2493,7 @@ export default function CourseIdeationApp({
           : "learning-design-assessment-seed",
         assessmentSeedCurrent
           ? "請先建立、編修並確認評量證據，再產生單元節次藍圖。"
-          : "請先產生最新的課程敘述語與課前評量，再產生單元節次藍圖。",
+          : "請先產生最新的課程敘述語與診斷題組，再產生單元節次藍圖。",
       );
       return;
     }
@@ -2174,7 +2597,7 @@ export default function CourseIdeationApp({
           setCurriculumRecommendation(nextAlignment.curriculumRecommendation);
         }
         setSelectedIndicatorId(nextAlignment.recommendations[0].indicatorId);
-        setDesiredResults(buildDesiredResults(nextAlignment));
+        setDesiredResults(null);
         setDesiredResultsConfirmedAt(null);
         setEvidencePlanConfirmedAt(null);
         setUnitBlueprintConfirmedAt(null);
@@ -2252,6 +2675,9 @@ export default function CourseIdeationApp({
         setEvidenceError(null);
         setAssessmentSeedError(null);
         setBlueprintError(null);
+        setActiveDesignTab("evidence");
+        setManualDesignTab(true);
+        setEvidencePanel("performance-task");
         setAlignmentAudit((current) => ({
           desiredResults: current.desiredResults,
           evidencePlan: "current",
@@ -2325,6 +2751,8 @@ export default function CourseIdeationApp({
         setUnitBlueprintConfirmedAt(null);
         setLessonPromptStatus([]);
         setPromptPreview(null);
+        setActiveDesignTab("assessment-seed");
+        setManualDesignTab(true);
         setAlignmentAudit((current) => ({
           ...current,
           unitBlueprint: unitBlueprint ? "stale" : "empty",
@@ -2410,6 +2838,8 @@ export default function CourseIdeationApp({
             generatedExternally: false,
           },
         ]);
+        setActiveDesignTab("delivery");
+        setManualDesignTab(true);
         setAlignmentAudit((current) => ({
           ...current,
           unitBlueprint: "current",
@@ -2490,7 +2920,7 @@ export default function CourseIdeationApp({
     ) {
       scrollToDesignStep(
         "learning-design-evidence",
-        "請先建立、編修並確認評量證據，再產生課程敘述語與課前評量。",
+        "請先建立、編修並確認評量證據，再產生課程敘述語與診斷題組。",
       );
       return;
     }
@@ -2511,7 +2941,7 @@ export default function CourseIdeationApp({
           : "learning-design-assessment-seed",
         assessmentSeedCurrent
           ? "請先建立、編修並確認評量證據，再產生單元節次藍圖。"
-          : "請先產生最新的課程敘述語與課前評量，再產生單元節次藍圖。",
+          : "請先產生最新的課程敘述語與診斷題組，再產生單元節次藍圖。",
       );
       return;
     }
@@ -3011,6 +3441,8 @@ export default function CourseIdeationApp({
   const chooseIndicator = (indicatorId: string) => {
     if (indicatorId === selectedIndicatorId) return;
     setSelectedIndicatorId(indicatorId);
+    setDesiredResults(null);
+    setDesiredResultsConfirmedAt(null);
     setEvidencePlanConfirmedAt(null);
     setUnitBlueprintConfirmedAt(null);
     setLessonPromptStatus([]);
@@ -3022,6 +3454,26 @@ export default function CourseIdeationApp({
     }));
     setEvidenceError(null);
     setBlueprintError(null);
+  };
+
+  const generateDesiredResults = () => {
+    if (!alignment || !selectedIndicatorId || !curriculumSelectionComplete) {
+      setError("請先選好 108 課綱學習表現、學習內容與 6Cs 子向度。");
+      setActiveDesignTab("alignment");
+      setManualDesignTab(true);
+      return;
+    }
+    setDesiredResults(buildDesiredResults(alignment));
+    setDesiredResultsConfirmedAt(null);
+    setAlignmentAudit((current) => ({
+      ...current,
+      desiredResults: "empty",
+      evidencePlan: evidencePlan ? "stale" : "empty",
+      unitBlueprint: unitBlueprint ? "stale" : "empty",
+    }));
+    setError(null);
+    setActiveDesignTab("desired-results");
+    setManualDesignTab(true);
   };
 
   const confirmDesiredResults = () => {
@@ -3539,58 +3991,154 @@ export default function CourseIdeationApp({
     setError(null);
   };
 
-  const downloadCourseAssessmentSeed = () => {
-    if (!courseAssessmentSeed || !assessmentForm || !assessmentSeedCurrent) {
-      setAssessmentSeedError("請先產生最新的課程敘述語與課前評量。");
-      return;
+  const getDiagnosticExportContext = () => {
+    if (!canExportDiagnosticDocuments || !courseAssessmentSeed || !assessmentForm) {
+      setDiagnosticDocStatus("請先產生診斷題組後再下載 Word。");
+      setAssessmentSeedError("請先產生最新的課程敘述語與診斷題組。");
+      return null;
     }
-    const markdown = renderCourseAssessmentSeedMarkdown(
-      courseAssessmentSeed,
-      assessmentForm,
-    );
-    const blob = new Blob([markdown], {
-      type: "text/markdown;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `NPDL-${input.unitName}-課程敘述與課前評量.md`.replace(
-      /[\\/:*?"<>|]/g,
-      "-",
-    );
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    setAssessmentSeedError(null);
+    return {
+      seed: courseAssessmentSeed,
+      form: assessmentForm,
+      options: {
+        indicatorName: diagnosticIndicatorName,
+        unitName: input.unitName,
+        preContent: preAssessmentContent,
+      },
+    };
   };
 
-  const printCourseAssessmentSeed = () => {
-    if (!courseAssessmentSeed || !assessmentForm || !assessmentSeedCurrent) {
-      setAssessmentSeedError("請先產生最新的課程敘述語與課前評量。");
-      return;
+  const downloadDiagnosticQuestionsDocx = async () => {
+    const context = getDiagnosticExportContext();
+    if (!context) return;
+    setDiagnosticDocExporting("questions");
+    setDiagnosticDocStatus("正在產生診斷題目 Word…");
+    setAssessmentSeedError(null);
+    try {
+      const markdown = renderDiagnosticQuestionsMarkdown({
+        form: context.form,
+        unitName: context.options.unitName,
+        indicatorName: context.options.indicatorName,
+        preContent: context.options.preContent,
+      });
+      if (!markdown.trim()) {
+        throw new Error("診斷題目內容為空，請重新產生診斷題組。");
+      }
+      await downloadTeacherDocumentDocx({
+        title: `${input.unitName}｜診斷題組（題目卷）`,
+        markdown,
+        fileName: `NPDL-${input.unitName}-診斷題目.docx`.replace(
+          /[\\/:*?"<>|]/g,
+          "-",
+        ),
+      });
+      setDiagnosticDocStatus("診斷題目 Word 已開始下載。");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "診斷題目 Word 產生失敗，請稍後再試。";
+      setDiagnosticDocStatus(message);
+      setAssessmentSeedError(message);
+    } finally {
+      setDiagnosticDocExporting(null);
     }
-    const markdown = renderCourseAssessmentSeedMarkdown(
-      courseAssessmentSeed,
-      assessmentForm,
-    );
-    const popup = window.open("", "_blank", "noopener,noreferrer");
-    if (!popup) {
-      setAssessmentSeedError(
-        "瀏覽器阻擋列印視窗，請允許彈出式視窗後再試一次。",
+  };
+
+  const downloadDiagnosticGuideDocx = async () => {
+    const context = getDiagnosticExportContext();
+    if (!context) return;
+    setDiagnosticDocExporting("guide");
+    setDiagnosticDocStatus("正在產生診斷指南 Word…");
+    setAssessmentSeedError(null);
+    try {
+      const markdown = renderDiagnosticTeacherGuideMarkdown(
+        context.seed,
+        context.form,
+        context.options,
       );
+      if (!markdown.trim()) {
+        throw new Error("診斷指南內容為空，請重新產生診斷題組。");
+      }
+      await downloadTeacherDocumentDocx({
+        title: `${input.unitName}｜診斷指南（教師用）`,
+        markdown,
+        fileName: `NPDL-${input.unitName}-診斷指南.docx`.replace(
+          /[\\/:*?"<>|]/g,
+          "-",
+        ),
+      });
+      setDiagnosticDocStatus("診斷指南 Word 已開始下載。");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "診斷指南 Word 產生失敗，請稍後再試。";
+      setDiagnosticDocStatus(message);
+      setAssessmentSeedError(message);
+    } finally {
+      setDiagnosticDocExporting(null);
+    }
+  };
+
+  const persistDiagnosticFormsRecord = (record: GoogleFormsExportRecord) => {
+    const records = readJson<Record<string, GoogleFormsExportRecord>>(
+      KEYS.googleFormsExports,
+      {},
+    );
+    records[record.fingerprint] = record;
+    writeJson(KEYS.googleFormsExports, records);
+    setFormsExportRecord(record);
+  };
+
+  const exportDiagnosticGoogleForm = async () => {
+    if (!googleOAuth.ready) {
+      setFormsExportStatus("正在載入 Google Forms 設定…");
       return;
     }
-    popup.document.write(`<!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><title>${escapeHtml(
-      input.unitName,
-    )}｜課程敘述與課前評量</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:32px;color:#18181b}pre{white-space:pre-wrap;font:14px/1.75 inherit}h1{font-size:20px}@media print{body{margin:16mm}}</style>
-</head><body><h1>${escapeHtml(
-      input.unitName,
-    )}｜課程敘述與課前評量</h1><pre>${escapeHtml(
-      markdown,
-    )}</pre><script>window.addEventListener("load",()=>window.print())</script></body></html>`);
-    popup.document.close();
+    if (diagnosticFormsExportIssue) {
+      setFormsExportStatus(diagnosticFormsExportIssue);
+      return;
+    }
+    if (googleClientIdIssue) {
+      if (googleClientIdManaged) {
+        setFormsExportStatus(
+          "Google Forms 部署設定未完成，請聯絡管理者確認 OAuth Client ID。",
+        );
+      } else {
+        setGoogleFormsSettingsOpen(true);
+      }
+      return;
+    }
+    if (!assessmentForm || !preAssessmentContent.trim()) return;
+    setFormsExporting(true);
+    setFormsExportStatus("正在登入 Google，授權後會建立診斷題組問卷。");
+    try {
+      const result = await createGoogleFormsFromAssessment({
+        clientId: googleClientId,
+        form: assessmentForm,
+        indicatorName: diagnosticIndicatorName,
+        preContent: preAssessmentContent,
+        postContent: "",
+        existing: formsExportRecord,
+        onProgress: persistDiagnosticFormsRecord,
+      });
+      persistDiagnosticFormsRecord(result);
+      setFormsExportStatus(
+        isGoogleFormExportEntryComplete(result.pre)
+          ? "診斷題組問卷已建立。"
+          : result.pre
+            ? "問卷尚未完成，可按同一按鈕重試；已完成者不會重建。"
+            : "問卷建立失敗，請重試。",
+      );
+    } catch (error) {
+      setFormsExportStatus(
+        error instanceof Error ? error.message : "Google 問卷建立失敗。",
+      );
+    } finally {
+      setFormsExporting(false);
+    }
   };
 
   const handoffToAssessment = () => {
@@ -3605,7 +4153,7 @@ export default function CourseIdeationApp({
       !assessmentSeedCurrent
     ) {
       setError(
-        "請先確認學習終點、評量證據，並產生最新的課程敘述語與課前評量。",
+        "請先確認學習終點、評量證據，並產生最新的課程敘述語與診斷題組。",
       );
       return;
     }
@@ -3650,12 +4198,291 @@ export default function CourseIdeationApp({
     }
   };
 
+  const handoffReady =
+    alignmentAudit.desiredResults === "current" &&
+    alignmentAudit.evidencePlan === "current" &&
+    Boolean(evidencePlanConfirmedAt) &&
+    assessmentSeedCurrent &&
+    alignmentAudit.unitBlueprint === "current" &&
+    Boolean(unitBlueprintConfirmedAt);
+  const canvasReady =
+    alignmentAudit.desiredResults === "current" &&
+    alignmentAudit.evidencePlan === "current" &&
+    alignmentAudit.unitBlueprint === "current" &&
+    Boolean(evidencePlanConfirmedAt) &&
+    Boolean(unitBlueprintConfirmedAt);
+  const unitPromptGenerated = lessonPromptStatus.find(
+    (status) => status.lessonId === "unit-all",
+  )?.generatedExternally;
+
+  const alignmentStatus: WorkflowStepStatus = busyAction === "align"
+    ? "working"
+    : curriculumSelectionNeedsRecalibration
+      ? "stale"
+      : alignment
+        ? "done"
+        : analysis
+          ? "ready"
+          : "locked";
+  const desiredResultsStatus: WorkflowStepStatus = !alignment
+    ? "locked"
+    : alignmentAudit.desiredResults === "current" && desiredResultsConfirmedAt
+      ? "done"
+      : desiredResults
+        ? "review"
+        : "ready";
+  const evidenceStatus: WorkflowStepStatus = busyAction === "evidence"
+    ? "working"
+    : alignmentAudit.desiredResults !== "current" || !desiredResultsConfirmedAt
+      ? "locked"
+      : alignmentAudit.evidencePlan === "stale"
+        ? "stale"
+        : alignmentAudit.evidencePlan === "current" && evidencePlanConfirmedAt
+          ? "done"
+          : evidencePlan
+            ? "review"
+            : "ready";
+  const assessmentSeedStatus: WorkflowStepStatus =
+    busyAction === "assessment_seed"
+      ? "working"
+      : !evidencePlanConfirmedAt || alignmentAudit.evidencePlan !== "current"
+        ? "locked"
+        : assessmentSeedCurrent
+          ? "done"
+          : courseAssessmentSeed
+            ? "stale"
+            : "ready";
+  const blueprintStatus: WorkflowStepStatus = busyAction === "blueprint"
+    ? "working"
+    : !evidencePlanConfirmedAt ||
+        alignmentAudit.evidencePlan !== "current" ||
+        !assessmentSeedCurrent
+      ? "locked"
+      : alignmentAudit.unitBlueprint === "stale"
+        ? "stale"
+        : alignmentAudit.unitBlueprint === "current" && unitBlueprintConfirmedAt
+          ? "done"
+          : unitBlueprint
+            ? "review"
+            : "ready";
+
+  const selectDesignTab = (tab: CourseDesignTabId) => {
+    setActiveDesignTab(tab);
+    setManualDesignTab(true);
+    window.setTimeout(() => {
+      document
+        .getElementById(`course-design-tab-${tab}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  };
+
+  const busyActionLabel: Record<AiAction, string> = {
+    analyze: "正在分析關鍵字…",
+    align: "正在校準課綱與 6Cs…",
+    evidence: "正在建立評量證據…",
+    assessment_seed: "正在產生課程敘述與診斷題組…",
+    blueprint: "正在倒推單元節次…",
+    reference: "正在分析教案…",
+  };
+
+  const nextAction: WorkflowAction = busyAction
+    ? {
+        label: busyActionLabel[busyAction],
+        description: "AI 正在處理目前步驟；完成後會自動顯示下一個可執行動作。",
+        busy: true,
+        onClick: () => undefined,
+      }
+    : !hasModelAccess
+      ? {
+          label: `設定 ${providerName(settings.model)} API Key`,
+          description: "目前選用的 AI 供應商尚未設定 API Key，完成後即可開始課程流程。",
+          icon: Settings2,
+          onClick: onOpenAiSettings,
+        }
+      : inputErrors.length > 0
+        ? {
+            label: "補齊課程欄位",
+            description: inputErrors[0],
+            icon: Pencil,
+            onClick: () => {
+              setError(inputErrors[0]);
+              setInputDrawerOpen(true);
+            },
+          }
+        : !analysis
+          ? {
+              label: "開始分析課程關鍵字",
+              description: "AI 會先整理課程重點與主題群，完成後再進入 108 課綱與 6Cs 校準。",
+              icon: BrainCircuit,
+              onClick: () => requestAction("analyze"),
+            }
+          : !alignment || curriculumSelectionNeedsRecalibration
+            ? {
+                label:
+                  curriculumSelection?.mode === "teacher_edited"
+                    ? "依教師調整重新校準"
+                    : "進行 108 課綱與 6Cs 校準",
+                description:
+                  "各選 2 項學習表現與學習內容後，讓 AI 產生 6Cs 主軸與學習成果。",
+                disabled:
+                  !curriculumCandidatesReady ||
+                  (curriculumSelection?.mode === "teacher_edited" &&
+                    !curriculumSelectionComplete),
+                tone: "amber",
+                icon: Target,
+                onClick: () => requestAction("align"),
+              }
+            : !curriculumSelectionComplete || !selectedIndicatorId
+              ? {
+                  label: "選擇 108 課綱與 6Cs 子向度",
+                  description: "各確認 2 項學習表現與學習內容，並選擇一個 6Cs 子向度作為主軸。",
+                  tone: "amber",
+                  icon: Target,
+                  onClick: () => selectDesignTab("alignment"),
+                }
+            : !desiredResults
+              ? {
+                  label: "生成學習終點",
+                  description: "依已選定的 108 課綱與 6Cs 子向度建立遷移目標、核心理解、核心問題與成功指標。",
+                  tone: "sky",
+                  icon: Sparkles,
+                  onClick: generateDesiredResults,
+                }
+            : alignmentAudit.desiredResults !== "current" ||
+                !desiredResultsConfirmedAt
+              ? {
+                  label: "確認學習終點，開放評量證據",
+                  description: "先確認遷移目標、三層學習成果、NPDL 四要素與成功指標，後續評量才會開放。",
+                  tone: "sky",
+                  icon: Check,
+                  onClick: confirmDesiredResults,
+                }
+              : alignmentAudit.evidencePlan !== "current" || !evidencePlan
+                ? {
+                    label: evidencePlan
+                      ? "重新建立並校準評量證據"
+                      : "AI 建立完整評量證據",
+                    description: "依學習終點建立真實任務、診斷／遷移四階參照、形成性四階參照與四級規準。",
+                    tone: "amber",
+                    icon: ListChecks,
+                    onClick: () => requestAction("evidence"),
+                  }
+                : !evidencePlanConfirmedAt
+                  ? {
+                      label: "確認證據，前往課程敘述與診斷題組",
+                      description: "確認後會鎖定目前證據系統，並開放課程敘述語與診斷題組生成。",
+                      tone: "amber",
+                      icon: Check,
+                      onClick: confirmEvidencePlan,
+                    }
+                  : !assessmentSeedCurrent
+                    ? {
+                        label: courseAssessmentSeed
+                          ? "重新產生並校準診斷題組"
+                          : "AI 產生課程敘述與診斷題組",
+                        description: "產生四級課程敘述語與正式診斷題組（診斷一～四），評量端會唯讀沿用。",
+                        tone: "cyan",
+                        icon: BookOpenCheck,
+                        onClick: () => requestAction("assessment_seed"),
+                      }
+                    : alignmentAudit.unitBlueprint !== "current" ||
+                        !unitBlueprint
+                      ? {
+                          label: unitBlueprint
+                            ? "重新產生單元節次藍圖"
+                            : "AI 產生單元節次藍圖",
+                          description: "依已確認的證據倒推節次、學習單與完整 Gemini Canvas 提示詞。",
+                          tone: "indigo",
+                          icon: Map,
+                          disabled: unitConstraintErrors.length > 0,
+                          onClick: () => requestAction("blueprint"),
+                        }
+                      : !unitBlueprintConfirmedAt
+                        ? {
+                            label: "確認藍圖並更新 Canvas",
+                            description: "確認節次順序、成功指標覆蓋與證據配置後，交付中心會開放 Canvas。",
+                            tone: "indigo",
+                            icon: Check,
+                            onClick: confirmUnitBlueprint,
+                          }
+                        : {
+                            label: "帶入評量設計",
+                            description: "課程敘述語、診斷題組、遷移性四階參照與節次藍圖都已準備好。",
+                            icon: ArrowRight,
+                            onClick: handoffToAssessment,
+                          };
+  const currentCourseSummary =
+    [input.grade, input.subject, input.unitName || input.teachingTopic]
+      .filter(Boolean)
+      .join(" · ") || "尚未完成課程設定";
+  const recommendedDesignTab: CourseDesignTabId = !analysis || !alignment
+    ? "alignment"
+    : !desiredResults ||
+        alignmentAudit.desiredResults !== "current" ||
+        !desiredResultsConfirmedAt
+      ? "desired-results"
+      : alignmentAudit.evidencePlan !== "current" || !evidencePlanConfirmedAt
+        ? "evidence"
+        : !assessmentSeedCurrent
+          ? "assessment-seed"
+          : "delivery";
+  const courseTabs = [
+    {
+      id: "alignment" as const,
+      label: "校準與選擇",
+      status: alignmentStatus,
+      disabled: false,
+    },
+    {
+      id: "desired-results" as const,
+      label: "學習終點",
+      status: desiredResultsStatus,
+      disabled: !alignment || !curriculumSelectionComplete || !selectedIndicatorId,
+    },
+    {
+      id: "evidence" as const,
+      label: "評量證據",
+      status: evidenceStatus,
+      disabled:
+        !desiredResultsConfirmedAt ||
+        alignmentAudit.desiredResults !== "current",
+    },
+    {
+      id: "assessment-seed" as const,
+      label: "診斷題組",
+      status: assessmentSeedStatus,
+      disabled:
+        !evidencePlanConfirmedAt ||
+        alignmentAudit.evidencePlan !== "current",
+    },
+    {
+      id: "delivery" as const,
+      label: "節次與交付",
+      status: handoffReady ? "ready" as const : blueprintStatus,
+      disabled: !assessmentSeedCurrent,
+    },
+  ];
+
+  useEffect(() => {
+    if (!manualDesignTab) {
+      setActiveDesignTab(recommendedDesignTab);
+      return;
+    }
+    const activeTabLocked = courseTabs.some(
+      (tab) => tab.id === activeDesignTab && tab.disabled,
+    );
+    if (activeTabLocked) {
+      setActiveDesignTab(recommendedDesignTab);
+      setManualDesignTab(false);
+    }
+  }, [activeDesignTab, courseTabs, manualDesignTab, recommendedDesignTab]);
+
   return (
     <div
       className={`${embedded ? "h-full" : "h-[100dvh]"} overflow-y-auto bg-[#f3f7f4] text-zinc-900 custom-scrollbar`}
       aria-hidden={!active}
     >
-      {!embedded && <header className="sticky top-0 z-40 border-b border-[#dfe8e2] bg-white/95 px-4 py-3 shadow-[0_1px_12px_rgba(15,45,38,0.06)] backdrop-blur-md">
+      {!embedded && <header className="sticky top-0 z-40 border-b border-white/50 bg-[#f3f7f4]/80 px-4 py-3 shadow-[0_1px_12px_rgba(15,45,38,0.06)] backdrop-blur-xl backdrop-saturate-150">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#173f36] text-white">
@@ -3681,33 +4508,49 @@ export default function CourseIdeationApp({
         </div>
       </header>}
 
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:py-8">
-        <section className="mb-6 overflow-hidden rounded-2xl bg-[#173f36] p-6 text-white shadow-xl shadow-emerald-950/10 sm:p-8">
-          <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr] lg:items-end">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-200">
-                Course Ideation Studio
-              </p>
-              <h2 className="mt-3 text-2xl font-black leading-tight sm:text-4xl">
-                把模糊想法，轉成可對齊、可觀察、可延伸的課程起點
-              </h2>
-              <p className="mt-3 max-w-3xl text-sm font-medium leading-7 text-emerald-50/85">
-                先整理 3–5 個核心關鍵字，以 108 課綱知識基礎為錨點，再由 AI 導航至 1–2 個 6Cs 子向度；課綱原文與正式四級進程皆取自受控資料，不由 AI 改寫。
-              </p>
+      <main className="mx-auto max-w-7xl px-4 py-5 sm:py-6">
+        <div className="mb-6 space-y-3">
+          <NextActionPanel
+            action={nextAction}
+            summary={currentCourseSummary}
+          />
+          <div className="flex flex-col gap-3 rounded-2xl border border-[#dfe8e2]/80 bg-white/70 px-4 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {input.coreKeywords.length > 0 ? (
+                input.coreKeywords.map((keyword) => (
+                  <span
+                    key={keyword}
+                    className="rounded-full bg-amber-100 px-3 py-1 text-[11px] font-black text-amber-900"
+                  >
+                    {keyword}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs font-bold text-zinc-500">
+                  尚未輸入核心關鍵字
+                </span>
+              )}
+              {referenceFileName && (
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black text-emerald-900">
+                  已附加教案：{referenceFileName}
+                </span>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                ["01", "創意孵化與關鍵字提取器"],
-                ["02", "6Cs 對齊與進程導航員"],
-              ].map(([number, label]) => (
-                <div key={number} className="rounded-xl border border-white/15 bg-white/10 p-4">
-                  <p className="text-xs font-black text-emerald-200">{number}</p>
-                  <p className="mt-1 text-sm font-black leading-5">{label}</p>
-                </div>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => setInputDrawerOpen(true)}
+              className="flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#b9ccc2] bg-white px-3 text-xs font-black text-[#173f36] transition active:scale-[0.97] hover:bg-emerald-50"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              編輯課程輸入
+            </button>
           </div>
-        </section>
+          <CourseTabs
+            tabs={courseTabs}
+            activeTab={activeDesignTab}
+            onChange={selectDesignTab}
+          />
+        </div>
 
         {error && (
           <div className="mb-6 flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
@@ -3718,8 +4561,15 @@ export default function CourseIdeationApp({
           </div>
         )}
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
-          <section className="h-fit rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6 xl:sticky xl:top-24">
+        <div className="space-y-4">
+          <InputDrawer
+            open={inputDrawerOpen}
+            onClose={() => setInputDrawerOpen(false)}
+          >
+          <section
+            id="course-input"
+            className="rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6"
+          >
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-[#b7791f]">
@@ -4036,7 +4886,7 @@ export default function CourseIdeationApp({
               type="button"
               onClick={() => requestAction("analyze")}
               disabled={busyAction !== null || inputErrors.length > 0}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#173f36] py-3.5 text-sm font-black text-white shadow-sm hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-45"
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-[#173f36] bg-white py-3 text-sm font-black text-[#173f36] transition active:scale-[0.97] hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {busyAction === "analyze" ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -4062,9 +4912,19 @@ export default function CourseIdeationApp({
               )}
             </div>
           </section>
+          </InputDrawer>
 
-          <div className="space-y-6">
-            {!analysis && (
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeDesignTab}
+              id={`course-design-tab-${activeDesignTab}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={reduceMotion ? { duration: 0 } : tabFade}
+              className="scroll-mt-24 space-y-6"
+            >
+            {!analysis && activeDesignTab === "alignment" && (
               <section className="flex min-h-80 flex-col items-center justify-center rounded-2xl border border-dashed border-[#b9ccc2] bg-white/70 p-8 text-center">
                 <div className="rounded-2xl bg-emerald-100 p-4 text-emerald-800">
                   <Sparkles className="h-7 w-7" />
@@ -4076,8 +4936,11 @@ export default function CourseIdeationApp({
               </section>
             )}
 
-            {analysis && (
-              <section className="rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6">
+            {analysis && activeDesignTab === "alignment" && (
+              <section
+                id="course-keyword-analysis"
+                className="scroll-mt-24 rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-[#b7791f]">
@@ -4190,8 +5053,11 @@ export default function CourseIdeationApp({
               </section>
             )}
 
-            {analysis && (
-              <section className="rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6">
+            {analysis && activeDesignTab === "alignment" && (
+              <section
+                id="course-curriculum-alignment"
+                className="scroll-mt-24 rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6"
+              >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-[#2f7d68]">
@@ -4209,7 +5075,7 @@ export default function CourseIdeationApp({
 
                 {curriculumSelectionNeedsRecalibration && (
                   <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-950">
-                    教師已調整課綱選擇。階段二與後續內容會保留顯示，但目前仍是舊版本；請各選滿 2 項後重新校準。
+                    教師已調整課綱選擇。階段二與後續內容會保留顯示，但目前仍是舊版本；請各選滿 2 項後，於下方選取區之後重新校準。
                   </div>
                 )}
                 {curriculumSelection &&
@@ -4232,28 +5098,11 @@ export default function CourseIdeationApp({
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => requestAction("align")}
-                  disabled={
-                    busyAction !== null ||
-                    !curriculumCandidatesReady ||
-                    (curriculumSelection?.mode === "teacher_edited" &&
-                      !curriculumSelectionComplete)
-                  }
-                  className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#b7791f] py-3.5 text-sm font-black text-white hover:bg-[#946114] disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  {busyAction === "align" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Target className="h-4 w-4" />
-                  )}
-                  {busyAction === "align"
-                    ? "正在校準課綱與 6Cs…"
-                    : curriculumSelection?.mode === "teacher_edited"
-                      ? "依教師調整重新校準"
-                      : "進行 108 課綱與 6Cs 校準"}
-                </button>
+                {!alignment && !curriculumSelectionNeedsRecalibration && (
+                  <p className="mt-5 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-xs font-bold leading-6 text-amber-950">
+                    請先用上方主按鈕完成 108 課綱與 6Cs 校準；完成後這裡會顯示推薦與可選項。
+                  </p>
+                )}
 
                 <CurriculumMultiSelect
                   title="學習表現"
@@ -4285,6 +5134,28 @@ export default function CourseIdeationApp({
                     )
                   }
                 />
+
+                {curriculumSelectionNeedsRecalibration && (
+                  <button
+                    type="button"
+                    onClick={() => requestAction("align")}
+                    disabled={
+                      busyAction !== null ||
+                      !curriculumCandidatesReady ||
+                      !curriculumSelectionComplete
+                    }
+                    className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-400 bg-white py-3 text-sm font-black text-amber-950 transition active:scale-[0.97] hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {busyAction === "align" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Target className="h-4 w-4" />
+                    )}
+                    {busyAction === "align"
+                      ? "正在校準課綱與 6Cs…"
+                      : "依教師調整重新校準"}
+                  </button>
+                )}
 
                 <details className="mt-5 rounded-xl border border-[#dfe8e2] bg-[#f7faf8]">
                   <summary className="cursor-pointer px-4 py-3 text-xs font-black text-zinc-700">
@@ -4333,7 +5204,7 @@ export default function CourseIdeationApp({
 
             {alignment && (
               <>
-                <nav
+                {false && <nav
                   aria-label="逆向設計進度"
                   className="rounded-2xl border border-[#dfe8e2] bg-white p-4 shadow-sm"
                 >
@@ -4392,8 +5263,9 @@ export default function CourseIdeationApp({
                       </li>
                     ))}
                   </ol>
-                </nav>
+                </nav>}
 
+                {activeDesignTab === "alignment" && (
                 <section className="rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -4465,274 +5337,349 @@ export default function CourseIdeationApp({
                   </div>
                   {selectedIndicator && <ProgressionPanel indicatorId={selectedIndicator.id} />}
                 </section>
+                )}
 
-                {desiredResults && (
+                {!desiredResults && activeDesignTab === "desired-results" && (
+                  <section
+                    id="learning-design-desired-results"
+                    className="rounded-2xl border border-sky-200 bg-white p-6 text-center shadow-sm"
+                  >
+                    <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">
+                      步驟 04
+                    </p>
+                    <h2 className="mt-2 text-xl font-black text-sky-950">
+                      生成學習終點
+                    </h2>
+                    <p className="mx-auto mt-2 max-w-2xl text-sm font-medium leading-7 text-zinc-600">
+                      已完成課綱與 6Cs 校準。請先確認學習表現、學習內容及 6Cs
+                      子向度，再生成遷移目標、核心理解、核心問題與成功指標。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={generateDesiredResults}
+                      className="mt-5 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-sky-800 px-6 text-sm font-black text-white hover:bg-sky-900"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      生成學習終點
+                    </button>
+                  </section>
+                )}
+
+                {desiredResults && alignment && activeDesignTab === "desired-results" && (
                   <section
                     id="learning-design-desired-results"
                     tabIndex={-1}
-                    className="scroll-mt-24 rounded-2xl border border-sky-200 bg-sky-50/60 p-5 shadow-sm outline-none focus:ring-2 focus:ring-sky-400 sm:p-6"
+                    className="scroll-mt-24 space-y-6 outline-none focus:ring-2 focus:ring-sky-400"
                   >
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">
-                          逆向設計 · 第一步
-                        </p>
-                        <h2 className="mt-1 text-xl font-black text-sky-950">
-                          鎖定學習終點
-                        </h2>
-                        <p className="mt-1 text-xs font-bold leading-6 text-sky-800">
-                          教師確認後才會開放評量證據；若更動課程、課綱或 6Cs，後續內容會標示需要重新校準。
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black ${
-                          alignmentAudit.desiredResults === "current"
-                            ? "bg-emerald-100 text-emerald-900"
-                            : "bg-amber-100 text-amber-950"
-                        }`}
-                      >
-                        {alignmentAudit.desiredResults === "current"
-                          ? "教師已確認"
-                          : "等待教師確認"}
-                      </span>
-                    </div>
-                    <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                      {[
-                        {
-                          label: "遷移目標",
-                          field: "transferGoals" as const,
-                          items: desiredResults.transferGoals,
-                        },
-                        {
-                          label: "核心理解",
-                          field: "enduringUnderstandings" as const,
-                          items: desiredResults.enduringUnderstandings,
-                        },
-                        {
-                          label: "核心問題",
-                          field: "essentialQuestions" as const,
-                          items: desiredResults.essentialQuestions,
-                        },
-                      ].map(({ label, field, items }) => (
-                        <article
-                          key={label}
-                          className="rounded-xl border border-sky-200 bg-white p-4"
+                    <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-5 shadow-sm sm:p-6">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">
+                            步驟 04 · 學習終點與設計依據
+                          </p>
+                          <h2 className="mt-1 text-xl font-black tracking-tight text-sky-950">
+                            鎖定學習終點
+                          </h2>
+                          <p className="mt-1 text-xs font-bold leading-6 text-sky-800">
+                            確認後才會開放評量證據；若更動課程、課綱或 6Cs，後續內容會標示需要重新校準。
+                          </p>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black ${
+                            alignmentAudit.desiredResults === "current"
+                              ? "bg-emerald-100 text-emerald-900"
+                              : "bg-amber-100 text-amber-950"
+                          }`}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <h3 className="text-xs font-black text-sky-900">
-                              {label}
-                            </h3>
+                          {alignmentAudit.desiredResults === "current"
+                            ? "教師已確認"
+                            : "等待教師確認"}
+                        </span>
+                      </div>
+                      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                        {[
+                          {
+                            label: "遷移目標",
+                            field: "transferGoals" as const,
+                            items: desiredResults.transferGoals,
+                          },
+                          {
+                            label: "核心理解",
+                            field: "enduringUnderstandings" as const,
+                            items: desiredResults.enduringUnderstandings,
+                          },
+                          {
+                            label: "核心問題",
+                            field: "essentialQuestions" as const,
+                            items: desiredResults.essentialQuestions,
+                          },
+                        ].map(({ label, field, items }) => (
+                          <article
+                            key={label}
+                            className="rounded-xl border border-sky-200 bg-white p-4"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <h3 className="text-xs font-black text-sky-900">
+                                {label}
+                              </h3>
+                              <AiRevisionButton
+                                label="AI 修改這張卡"
+                                onClick={() =>
+                                  openAiRevision({
+                                    kind: "desired_result",
+                                    field,
+                                  })
+                                }
+                                disabled={revisionBusy || busyAction !== null}
+                              />
+                            </div>
+                            <ul className="mt-2 space-y-2 text-xs font-medium leading-6 text-zinc-700">
+                              {items.map((item) => (
+                                <li key={item} className="flex items-start gap-2">
+                                  <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-sky-700" />
+                                  {item}
+                                </li>
+                              ))}
+                            </ul>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6">
+                      <div className="flex items-center gap-3">
+                        <div className="rounded-xl bg-violet-100 p-2 text-violet-800">
+                          <BookOpenCheck className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-black tracking-tight text-zinc-950">
+                            三層學習成果
+                          </h2>
+                          <p className="text-xs font-bold leading-6 text-zinc-500">
+                            成功指標在此為唯一權威顯示；評量證據分頁只引用勾選。
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-3">
+                        <article className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">
+                              01 知識基礎
+                            </p>
                             <AiRevisionButton
                               label="AI 修改這張卡"
                               onClick={() =>
                                 openAiRevision({
-                                  kind: "desired_result",
-                                  field,
+                                  kind: "learning_outcome",
+                                  outcomeId: "knowledge-foundation",
                                 })
                               }
                               disabled={revisionBusy || busyAction !== null}
                             />
                           </div>
-                          <ul className="mt-2 space-y-2 text-xs font-medium leading-6 text-zinc-700">
-                            {items.map((item) => (
-                              <li key={item} className="flex items-start gap-2">
-                                <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-sky-700" />
-                                {item}
-                              </li>
-                            ))}
+                          <details className="mt-3 rounded-lg border border-violet-100 bg-white p-3">
+                            <summary className="cursor-pointer text-xs font-black text-violet-700">
+                              已選課綱{" "}
+                              {alignment.curriculumSelection.performanceIds.length +
+                                alignment.curriculumSelection.contentIds.length}{" "}
+                              項 · 查看完整內容
+                            </summary>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {[
+                                ...alignment.curriculumSelection.performanceIds,
+                                ...alignment.curriculumSelection.contentIds,
+                              ].map((id) => {
+                                const entry = getCurriculumEntry(
+                                  id,
+                                  customCurriculumEntries,
+                                );
+                                if (!entry) return null;
+                                return (
+                                  <span
+                                    key={id}
+                                    className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-black text-[#173f36] ring-1 ring-violet-200"
+                                  >
+                                    {entry.code}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            <ul className="mt-3 space-y-2 text-xs font-medium leading-6 text-zinc-700">
+                              {[
+                                ...alignment.curriculumSelection.performanceIds,
+                                ...alignment.curriculumSelection.contentIds,
+                              ].map((id) => {
+                                const entry = getCurriculumEntry(
+                                  id,
+                                  customCurriculumEntries,
+                                );
+                                if (!entry) return null;
+                                return (
+                                  <li key={id}>
+                                    <span className="font-black text-[#173f36]">
+                                      {entry.code}
+                                    </span>
+                                    ｜{entry.text}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </details>
+                          <p className="mt-3 text-[10px] font-black text-violet-700">
+                            學術預期成果
+                          </p>
+                          <p className="mt-1 text-sm font-black leading-7 text-zinc-800">
+                            {alignment.learningOutcomes.knowledgeFoundation.statement}
+                          </p>
+                          <p className="mt-3 text-[10px] font-black text-violet-700">
+                            成功指標
+                          </p>
+                          <ul className="mt-1 space-y-1 text-xs font-medium leading-6 text-zinc-700">
+                            {alignment.learningOutcomes.knowledgeFoundation.successCriteria.map(
+                              (criterion) => (
+                                <li key={criterion} className="flex items-start gap-2">
+                                  <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-violet-700" />
+                                  {criterion}
+                                </li>
+                              ),
+                            )}
                           </ul>
+                          <p className="mt-3 text-xs font-medium leading-6 text-zinc-600">
+                            <span className="font-black">可觀察證據：</span>
+                            {alignment.learningOutcomes.knowledgeFoundation.evidence}
+                          </p>
                         </article>
-                      ))}
+                        {[
+                          {
+                            label: "02 素養子向度",
+                            outcomeId: "competency-subdimension",
+                            outcome:
+                              alignment.learningOutcomes.competencySubdimension,
+                          },
+                          {
+                            label: "03 四要素整合實踐",
+                            outcomeId: "four-elements-practice",
+                            outcome:
+                              alignment.learningOutcomes.fourElementsPractice,
+                          },
+                        ].map(({ label, outcomeId, outcome }) => (
+                          <article
+                            key={label}
+                            className="rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">
+                                {label}
+                              </p>
+                              <AiRevisionButton
+                                label="AI 修改這張卡"
+                                onClick={() =>
+                                  openAiRevision({
+                                    kind: "learning_outcome",
+                                    outcomeId,
+                                  })
+                                }
+                                disabled={revisionBusy || busyAction !== null}
+                              />
+                            </div>
+                            <p className="mt-2 text-sm font-black leading-7 text-zinc-800">
+                              {outcome.statement}
+                            </p>
+                            <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
+                              <span className="font-black">可觀察證據：</span>
+                              {outcome.evidence}
+                            </p>
+                          </article>
+                        ))}
+                      </div>
                     </div>
+
+                    <div className="rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6">
+                      <h2 className="text-xl font-black tracking-tight text-zinc-950">
+                        NPDL 學習設計四要素
+                      </h2>
+                      <p className="mt-1 text-xs font-bold leading-6 text-zinc-500">
+                        不是 4E 教學循環；四個要素共同支撐深度學習設計。
+                      </p>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {alignment.fourElements.map((element) => (
+                          <article
+                            key={element.name}
+                            className="rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <h3 className="text-sm font-black text-[#173f36]">
+                                {element.name}
+                              </h3>
+                              <AiRevisionButton
+                                label="AI 修改這張卡"
+                                onClick={() =>
+                                  openAiRevision({
+                                    kind: "four_element",
+                                    name: element.name,
+                                  })
+                                }
+                                disabled={revisionBusy || busyAction !== null}
+                              />
+                            </div>
+                            <div className="mt-3 space-y-2">
+                              <DrawerText
+                                label={`${element.name}｜設計動作`}
+                                text={element.designMove}
+                                tone="emerald"
+                                onOpen={setContentDrawer}
+                              />
+                              <DrawerText
+                                label={`${element.name}｜學生證據`}
+                                text={element.studentEvidence}
+                                tone="zinc"
+                                onOpen={setContentDrawer}
+                              />
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                      <article className="mt-4 rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <h3 className="text-sm font-black text-[#173f36]">
+                            證據工具
+                          </h3>
+                          <AiRevisionButton
+                            label="AI 修改這張卡"
+                            onClick={() =>
+                              openAiRevision({ kind: "evidence_tools" })
+                            }
+                            disabled={revisionBusy || busyAction !== null}
+                          />
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {alignment.evidenceTools.map((tool) => (
+                            <span
+                              key={tool}
+                              className="rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-zinc-700 ring-1 ring-[#dfe8e2]"
+                            >
+                              {tool}
+                            </span>
+                          ))}
+                        </div>
+                      </article>
+                    </div>
+
                     <button
                       type="button"
                       onClick={confirmDesiredResults}
                       disabled={alignmentAudit.desiredResults === "current"}
-                      className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-800 py-3 text-sm font-black text-white hover:bg-sky-900 disabled:cursor-default disabled:bg-emerald-700"
+                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-sky-300 bg-white py-3 text-sm font-black text-sky-950 transition active:scale-[0.97] hover:bg-sky-50 disabled:cursor-default disabled:border-emerald-300 disabled:bg-emerald-50 disabled:text-emerald-900"
                     >
                       <Check className="h-4 w-4" />
                       {alignmentAudit.desiredResults === "current"
-                        ? "學習終點已確認"
-                        : "確認並鎖定學習終點"}
+                        ? "學習終點已確認，評量證據已開放"
+                        : "確認學習終點，開放評量證據"}
                     </button>
                   </section>
                 )}
 
-                <section className="rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-xl bg-violet-100 p-2 text-violet-800">
-                      <BookOpenCheck className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-black">三層學習成果</h2>
-                      <p className="text-xs font-bold text-zinc-500">
-                        從內容理解逐步走向素養與真實實踐。
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-3">
-                    <article className="rounded-xl border border-violet-200 bg-violet-50/60 p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">
-                          01 知識基礎
-                        </p>
-                        <AiRevisionButton
-                          label="AI 修改這張卡"
-                          onClick={() =>
-                            openAiRevision({
-                              kind: "learning_outcome",
-                              outcomeId: "knowledge-foundation",
-                            })
-                          }
-                          disabled={revisionBusy || busyAction !== null}
-                        />
-                      </div>
-                      <div className="mt-3 rounded-lg border border-violet-100 bg-white p-3">
-                        <p className="text-[10px] font-black text-violet-700">
-                          課綱依據
-                        </p>
-                        <ul className="mt-2 space-y-2 text-xs font-medium leading-6 text-zinc-700">
-                          {[
-                            ...alignment.curriculumSelection.performanceIds,
-                            ...alignment.curriculumSelection.contentIds,
-                          ].map((id) => {
-                            const entry = getCurriculumEntry(
-                              id,
-                              customCurriculumEntries,
-                            );
-                            if (!entry) return null;
-                            return (
-                              <li key={id}>
-                                <span className="font-black text-[#173f36]">
-                                  {entry.code}
-                                </span>
-                                ｜{entry.text}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                      <p className="mt-3 text-[10px] font-black text-violet-700">
-                        學術預期成果
-                      </p>
-                      <p className="mt-1 text-sm font-black leading-7 text-zinc-800">
-                        {alignment.learningOutcomes.knowledgeFoundation.statement}
-                      </p>
-                      <p className="mt-3 text-[10px] font-black text-violet-700">
-                        成功指標
-                      </p>
-                      <ul className="mt-1 space-y-1 text-xs font-medium leading-6 text-zinc-700">
-                        {alignment.learningOutcomes.knowledgeFoundation.successCriteria.map(
-                          (criterion) => (
-                            <li key={criterion} className="flex items-start gap-2">
-                              <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-violet-700" />
-                              {criterion}
-                            </li>
-                          ),
-                        )}
-                      </ul>
-                      <p className="mt-3 text-xs font-medium leading-6 text-zinc-600">
-                        <span className="font-black">可觀察證據：</span>
-                        {alignment.learningOutcomes.knowledgeFoundation.evidence}
-                      </p>
-                    </article>
-                    {[
-                      {
-                        label: "02 素養子向度",
-                        outcomeId: "competency-subdimension",
-                        outcome:
-                          alignment.learningOutcomes.competencySubdimension,
-                      },
-                      {
-                        label: "03 四要素整合實踐",
-                        outcomeId: "four-elements-practice",
-                        outcome:
-                          alignment.learningOutcomes.fourElementsPractice,
-                      },
-                    ].map(({ label, outcomeId, outcome }) => (
-                      <article key={label} className="rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">
-                            {label}
-                          </p>
-                          <AiRevisionButton
-                            label="AI 修改這張卡"
-                            onClick={() =>
-                              openAiRevision({
-                                kind: "learning_outcome",
-                                outcomeId,
-                              })
-                            }
-                            disabled={revisionBusy || busyAction !== null}
-                          />
-                        </div>
-                        <p className="mt-2 text-sm font-black leading-7 text-zinc-800">
-                          {outcome.statement}
-                        </p>
-                        <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
-                          <span className="font-black">可觀察證據：</span>
-                          {outcome.evidence}
-                        </p>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="rounded-2xl border border-[#dfe8e2] bg-white p-5 shadow-sm sm:p-6">
-                  <h2 className="text-xl font-black">NPDL 學習設計四要素</h2>
-                  <p className="mt-1 text-xs font-bold text-zinc-500">
-                    不是 4E 教學循環；四個要素共同支撐深度學習設計。
-                  </p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    {alignment.fourElements.map((element) => (
-                      <article key={element.name} className="rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="text-sm font-black text-[#173f36]">{element.name}</h3>
-                          <AiRevisionButton
-                            label="AI 修改這張卡"
-                            onClick={() =>
-                              openAiRevision({
-                                kind: "four_element",
-                                name: element.name,
-                              })
-                            }
-                            disabled={revisionBusy || busyAction !== null}
-                          />
-                        </div>
-                        <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
-                          <span className="font-black">設計動作：</span>
-                          {element.designMove}
-                        </p>
-                        <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
-                          <span className="font-black">學生證據：</span>
-                          {element.studentEvidence}
-                        </p>
-                      </article>
-                    ))}
-                  </div>
-                  <article className="mt-4 rounded-xl border border-[#dfe8e2] bg-[#f7faf8] p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-black text-[#173f36]">
-                        證據工具
-                      </h3>
-                      <AiRevisionButton
-                        label="AI 修改這張卡"
-                        onClick={() =>
-                          openAiRevision({ kind: "evidence_tools" })
-                        }
-                        disabled={revisionBusy || busyAction !== null}
-                      />
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {alignment.evidenceTools.map((tool) => (
-                        <span key={tool} className="rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-zinc-700 ring-1 ring-[#dfe8e2]">
-                          {tool}
-                        </span>
-                      ))}
-                    </div>
-                  </article>
-                </section>
-
+                {activeDesignTab === "evidence" && (
                 <section
                   id="learning-design-evidence"
                   tabIndex={-1}
@@ -4780,6 +5727,11 @@ export default function CourseIdeationApp({
                       請先確認「學習終點」，才能讓 AI 依成功指標建立證據系統。
                     </p>
                   )}
+                  {alignmentAudit.desiredResults === "current" && !evidencePlan && (
+                    <p className="mt-4 rounded-xl border border-amber-200 bg-white p-3 text-xs font-bold leading-6 text-amber-950">
+                      請先用上方主按鈕建立完整評量證據；產生後再於此處審閱與確認。
+                    </p>
+                  )}
 
                   {evidenceError && (
                     <p
@@ -4792,6 +5744,39 @@ export default function CourseIdeationApp({
 
                   {evidencePlan && (
                     <div className="mt-4 space-y-4">
+                      <div
+                        role="tablist"
+                        aria-label="評量證據內容切換"
+                        className="flex gap-2 overflow-x-auto rounded-xl border border-amber-200 bg-white p-2 custom-scrollbar"
+                      >
+                        {[
+                          ["performance-task", "真實任務"],
+                          ["questions", "四階參照"],
+                          ["evidence-items", "證據項目"],
+                          ["rubric", "四級規準"],
+                          ["edit", evidencePlanConfirmedAt ? "查看已鎖定內容" : "逐項編修"],
+                        ].map(([id, label]) => {
+                          const selected = evidencePanel === id;
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              role="tab"
+                              aria-selected={selected}
+                              onClick={() => setEvidencePanel(id as EvidencePanelId)}
+                              className={`min-h-10 shrink-0 rounded-lg px-3 text-xs font-black transition ${
+                                selected
+                                  ? "bg-amber-800 text-white shadow-sm"
+                                  : "bg-amber-50 text-amber-950 hover:bg-amber-100"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {evidencePanel === "performance-task" && (
                       <article className="rounded-xl border border-amber-200 bg-white p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <h3 className="text-sm font-black text-amber-950">
@@ -4820,16 +5805,18 @@ export default function CourseIdeationApp({
                               evidencePlan.performanceTask.criterionIds.join("、"),
                             ],
                           ].map(([label, value]) => (
-                            <div key={label} className="rounded-lg bg-amber-50 p-3">
-                              <dt className="font-black text-amber-800">{label}</dt>
-                              <dd className="mt-1 font-medium leading-6 text-zinc-700">
-                                {value}
-                              </dd>
-                            </div>
+                            <EvidenceText
+                              key={label}
+                              label={label}
+                              text={value}
+                              tone="amber"
+                            />
                           ))}
                         </dl>
                       </article>
+                      )}
 
+                      {evidencePanel === "questions" && (
                       <div className="grid gap-3 lg:grid-cols-2">
                         {evidencePlan.questionMaps.map((map) => (
                           <article
@@ -4838,9 +5825,7 @@ export default function CourseIdeationApp({
                           >
                             <div className="flex items-start justify-between gap-2">
                               <h3 className="text-sm font-black text-amber-950">
-                                {map.phase === "pre"
-                                  ? "課前 Q1–Q4 證據目的"
-                                  : "課後 Q1–Q4 遷移證據目的"}
+                                {designReferenceLabel(map.phase)}
                               </h3>
                               <AiRevisionButton
                                 label="AI 修改這張卡"
@@ -4853,31 +5838,34 @@ export default function CourseIdeationApp({
                                 disabled={revisionBusy || busyAction !== null}
                               />
                             </div>
-                            <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
-                              <span className="font-black">共同問題：</span>
-                              {map.sharedProblem}
-                            </p>
+                            <div className="mt-2">
+                              <EvidenceText
+                                label="共同問題"
+                                text={map.sharedProblem}
+                                tone="amber"
+                              />
+                            </div>
                             {map.phase === "post" && (
-                              <p className="mt-2 rounded-lg bg-sky-50 p-3 text-xs font-bold leading-6 text-sky-900">
-                                新情境差異：{map.transferDifference}
-                              </p>
+                              <div className="mt-2">
+                                <EvidenceText
+                                  label="新情境差異"
+                                  text={map.transferDifference}
+                                  tone="sky"
+                                />
+                              </div>
                             )}
                             <div className="mt-3 space-y-2">
-                              {map.questions.map((question) => (
+                              {map.questions.map((question, questionIndex) => (
                                 <div
                                   key={question.id}
                                   className="rounded-lg bg-amber-50 p-3 text-xs leading-6"
                                 >
                                   <div className="flex items-start justify-between gap-2">
                                     <p className="font-black text-amber-900">
-                                      {question.id} ·{" "}
-                                      {question.focus === "conceptual_understanding"
-                                        ? "概念理解"
-                                        : question.focus === "action_application"
-                                          ? "行動應用"
-                                          : question.focus === "life_transfer"
-                                            ? "生活遷移"
-                                            : "引導式簡答與四級進程"}
+                                      {designStageWithFocus(
+                                        questionIndex,
+                                        question.focus,
+                                      )}
                                     </p>
                                     <AiRevisionButton
                                       label="AI 修改這張卡"
@@ -4893,19 +5881,27 @@ export default function CourseIdeationApp({
                                       }
                                     />
                                   </div>
-                                  <p className="mt-1 font-medium text-zinc-700">
-                                    {question.purpose}
-                                  </p>
-                                  <p className="mt-1 text-[10px] font-bold text-zinc-500">
-                                    預期證據：{question.observableEvidence}
-                                  </p>
+                                  <div className="mt-2 space-y-2">
+                                    <EvidenceText
+                                      label="評量目的"
+                                      text={question.purpose}
+                                      tone="amber"
+                                    />
+                                    <EvidenceText
+                                      label="預期證據"
+                                      text={question.observableEvidence}
+                                      tone="zinc"
+                                    />
+                                  </div>
                                 </div>
                               ))}
                             </div>
                           </article>
                         ))}
                       </div>
+                      )}
 
+                      {evidencePanel === "evidence-items" && (
                       <div className="grid gap-3 md:grid-cols-2">
                         {evidencePlan.evidenceItems.map((item) => (
                           <article
@@ -4918,13 +5914,7 @@ export default function CourseIdeationApp({
                               </h3>
                               <div className="flex items-center gap-2">
                                 <span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-900">
-                                  {item.type === "diagnostic"
-                                    ? "課前診斷"
-                                    : item.type === "formative"
-                                      ? "形成性"
-                                      : item.type === "summative"
-                                        ? "總結性"
-                                        : "課後遷移"}
+                                  {evidenceItemTypeLabel(item.type)}
                                 </span>
                                 <AiRevisionButton
                                   label="AI 修改這張卡"
@@ -4938,81 +5928,101 @@ export default function CourseIdeationApp({
                                 />
                               </div>
                             </div>
-                            <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
-                              <span className="font-black">證據：</span>
-                              {item.artifact}
-                            </p>
-                            <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
-                              <span className="font-black">蒐集方式：</span>
-                              {item.method}（{item.timing}）
-                            </p>
-                            <p className="mt-2 rounded-lg bg-emerald-50 p-3 text-xs font-bold leading-6 text-emerald-950">
-                              教學決策：{item.decisionRule}
-                            </p>
+                            <div className="mt-3 space-y-2">
+                              <EvidenceText
+                                label="證據"
+                                text={item.artifact}
+                                tone="amber"
+                              />
+                              <EvidenceText
+                                label="蒐集方式"
+                                text={`${item.method}（${item.timing}）`}
+                                tone="zinc"
+                              />
+                              <EvidenceText
+                                label="教學決策"
+                                text={item.decisionRule}
+                                tone="emerald"
+                              />
+                            </div>
                             <p className="mt-2 text-[10px] font-black text-zinc-500">
                               對應 {item.criterionIds.join("、")}
                             </p>
                           </article>
                         ))}
                       </div>
+                      )}
 
-                      <details className="rounded-xl border border-amber-200 bg-white">
-                        <summary className="cursor-pointer px-4 py-3 text-sm font-black text-amber-950">
-                          查看學科成功指標四級規準
-                        </summary>
-                        <div className="grid gap-3 border-t border-amber-200 p-4">
-                          {evidencePlan.rubric.map((criterion) => (
-                            <article
-                              key={criterion.criterionId}
-                              className="rounded-lg bg-amber-50 p-3"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <h4 className="text-xs font-black text-amber-900">
-                                  {criterion.criterionId}
-                                </h4>
-                                <AiRevisionButton
-                                  label="AI 修改這張卡"
-                                  onClick={() =>
-                                    openAiRevision({
-                                      kind: "rubric",
-                                      criterionId: criterion.criterionId,
-                                    })
-                                  }
-                                  disabled={revisionBusy || busyAction !== null}
-                                />
-                              </div>
-                              <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
-                                {[
-                                  ["證據有限", criterion.levels.evidenceLimited],
-                                  ["萌芽", criterion.levels.emerging],
-                                  ["發展", criterion.levels.developing],
-                                  ["精熟", criterion.levels.mastering],
-                                ].map(([level, text]) => (
-                                  <p
-                                    key={level}
-                                    className="rounded-lg bg-white p-3 font-medium leading-6 text-zinc-700"
-                                  >
-                                    <span className="font-black text-amber-800">
-                                      {level}：
-                                    </span>
-                                    {text}
-                                  </p>
-                                ))}
-                              </div>
-                            </article>
-                          ))}
+                      {evidencePanel === "rubric" && (
+                      <section className="rounded-xl border border-amber-200 bg-white">
+                        <div className="px-4 py-3 text-sm font-black text-amber-950">
+                          學科成功指標四級規準
                         </div>
-                      </details>
+                        <div className="space-y-4 border-t border-amber-200 p-4">
+                          <p className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold leading-6 text-cyan-900">
+                            四級課程敘述語請至「診斷題組」分頁編修。
+                            <button
+                              type="button"
+                              onClick={() => selectDesignTab("assessment-seed")}
+                              className="ml-2 font-black underline transition active:scale-[0.97]"
+                            >
+                              前往診斷題組
+                            </button>
+                          </p>
 
-                      <details
+                          <section className="grid gap-3">
+                            {evidencePlan.rubric.map((criterion) => (
+                              <article
+                                key={criterion.criterionId}
+                                className="rounded-lg bg-amber-50 p-3"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <h4 className="text-xs font-black text-amber-900">
+                                    {criterion.criterionId}
+                                  </h4>
+                                  <AiRevisionButton
+                                    label="AI 修改這張卡"
+                                    onClick={() =>
+                                      openAiRevision({
+                                        kind: "rubric",
+                                        criterionId: criterion.criterionId,
+                                      })
+                                    }
+                                    disabled={revisionBusy || busyAction !== null}
+                                  />
+                                </div>
+                                <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                                  {[
+                                    ["證據有限", criterion.levels.evidenceLimited],
+                                    ["萌芽", criterion.levels.emerging],
+                                    ["發展", criterion.levels.developing],
+                                    ["精熟", criterion.levels.mastering],
+                                  ].map(([level, text]) => (
+                                    <EvidenceText
+                                      key={level}
+                                      label={`${criterion.criterionId}｜${level}`}
+                                      text={text}
+                                      tone="amber"
+                                    />
+                                  ))}
+                                </div>
+                              </article>
+                            ))}
+                          </section>
+                        </div>
+                      </section>
+                      )}
+
+                      {evidencePanel === "edit" && (
+                      <section
                         className="rounded-xl border border-amber-300 bg-white"
                       >
-                        <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-black text-amber-950">
+                        <div className="flex items-center gap-2 px-4 py-3 text-sm font-black text-amber-950">
                           <Pencil className="h-4 w-4" />
                           {evidencePlanConfirmedAt
                             ? "查看已鎖定的評量證據內容"
                             : "逐項編修評量證據草稿"}
-                        </summary>
+                        </div>
                         <div className="space-y-5 border-t border-amber-200 p-4">
                           <fieldset
                             disabled={Boolean(evidencePlanConfirmedAt)}
@@ -5078,9 +6088,7 @@ export default function CourseIdeationApp({
                                 className="rounded-xl border border-amber-200 bg-amber-50/50 p-4"
                               >
                                 <h4 className="text-sm font-black text-amber-950">
-                                  {map.phase === "pre"
-                                    ? "課前 Q1–Q4"
-                                    : "課後 Q1–Q4（新情境遷移）"}
+                                  {designReferenceLabel(map.phase)}
                                 </h4>
                                 <label className="mt-3 block text-xs font-black text-zinc-700">
                                   共同問題脈絡
@@ -5115,13 +6123,16 @@ export default function CourseIdeationApp({
                                   </label>
                                 )}
                                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                                  {map.questions.map((question) => (
+                                  {map.questions.map((question, questionIndex) => (
                                     <article
                                       key={question.id}
                                       className="rounded-lg border border-amber-200 bg-white p-3"
                                     >
                                       <h5 className="text-xs font-black text-amber-900">
-                                        {question.id}
+                                        {designStageWithFocus(
+                                          questionIndex,
+                                          question.focus,
+                                        )}
                                       </h5>
                                       <label className="mt-2 block text-[11px] font-black text-zinc-700">
                                         評量目的
@@ -5334,13 +6345,14 @@ export default function CourseIdeationApp({
                             </div>
                           </fieldset>
                         </div>
-                      </details>
+                      </section>
+                      )}
 
                       {evidencePlanConfirmedAt ? (
                         <button
                           type="button"
                           onClick={reopenEvidencePlan}
-                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-400 bg-white py-3 text-sm font-black text-amber-900 hover:bg-amber-50"
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-400 bg-white py-3 text-sm font-black text-amber-900 transition active:scale-[0.97] hover:bg-amber-50"
                         >
                           <Pencil className="h-4 w-4" />
                           重新編輯評量證據
@@ -5349,43 +6361,33 @@ export default function CourseIdeationApp({
                         <button
                           type="button"
                           onClick={confirmEvidencePlan}
-                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 py-3 text-sm font-black text-white hover:bg-emerald-800"
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400 bg-white py-3 text-sm font-black text-emerald-950 transition active:scale-[0.97] hover:bg-emerald-50"
                         >
                           <Check className="h-4 w-4" />
-                          確認證據，前往課程敘述與課前評量
+                          確認證據，前往課程敘述與診斷題組
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => requestAction("evidence")}
+                        disabled={busyAction !== null}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-200 bg-white py-2.5 text-xs font-black text-amber-950 transition active:scale-[0.97] hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {busyAction === "evidence" ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ListChecks className="h-3.5 w-3.5" />
+                        )}
+                        {busyAction === "evidence"
+                          ? "正在建立評量證據…"
+                          : "重新建立並校準評量證據"}
+                      </button>
                     </div>
                   )}
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      alignmentAudit.desiredResults === "current"
-                        ? requestAction("evidence")
-                        : scrollToDesignStep(
-                            "learning-design-desired-results",
-                            "請先確認學習終點，再建立評量證據。",
-                          )
-                    }
-                    disabled={busyAction !== null}
-                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-700 py-3.5 text-sm font-black text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    {busyAction === "evidence" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <ListChecks className="h-4 w-4" />
-                    )}
-                    {busyAction === "evidence"
-                      ? "正在建立評量證據…"
-                      : alignmentAudit.desiredResults !== "current"
-                        ? "先確認學習終點"
-                      : evidencePlan
-                        ? "重新建立並校準評量證據"
-                        : "AI 建立完整評量證據"}
-                  </button>
                 </section>
+                )}
 
+                {activeDesignTab === "assessment-seed" && (
                 <section
                   id="learning-design-assessment-seed"
                   tabIndex={-1}
@@ -5397,10 +6399,10 @@ export default function CourseIdeationApp({
                         逆向設計 · 第三步
                       </p>
                       <h2 className="mt-1 text-xl font-black text-cyan-950">
-                        課程敘述與課前評量
+                        課程敘述與診斷題組
                       </h2>
                       <p className="mt-1 text-xs font-bold leading-6 text-cyan-900/80">
-                        依已確認的課前 Q1–Q4 證據目的，產生四級學習進程與可直接使用的完整課前題組；評量端會唯讀沿用，不再重新生成。
+                        依已確認的診斷性四階參照，產生四級學習進程與可直接使用的診斷題組（診斷一～四）；評量端會唯讀沿用，不再重新生成。
                       </p>
                     </div>
                     <span
@@ -5413,7 +6415,7 @@ export default function CourseIdeationApp({
                       }`}
                     >
                       {assessmentSeedCurrent
-                        ? "課前評量已對齊"
+                        ? "診斷題組已對齊"
                         : courseAssessmentSeed
                           ? "上游已變更，需重新產生"
                           : "尚未建立"}
@@ -5426,164 +6428,451 @@ export default function CourseIdeationApp({
                     </p>
                   )}
 
+                  {!courseAssessmentSeed && evidencePlanConfirmedAt && (
+                    <p className="mt-4 rounded-xl border border-cyan-200 bg-white px-4 py-3 text-xs font-bold leading-6 text-cyan-900">
+                      請先用上方主按鈕產生課程敘述語與診斷題組；產生後再於此處審閱。
+                    </p>
+                  )}
+
                   {courseAssessmentSeed &&
                     assessmentForm &&
                     assessmentSeedModules.length >= 2 && (
                       <div className="mt-5 space-y-5">
                         {!assessmentSeedCurrent && (
                           <p className="rounded-xl border border-red-200 bg-white px-4 py-3 text-xs font-bold leading-6 text-red-800">
-                            學習終點或評量證據已更新。下列舊內容保留供比較，但不可匯出、帶入評量或用於節次藍圖。
+                            學習終點或評量證據已更新。下列舊內容保留供比較；仍可下載 Word，但不可帶入評量、節次藍圖或 Google Form。
                           </p>
                         )}
 
-                        <div className="rounded-2xl border border-cyan-200 bg-white p-3 sm:p-4">
-                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <h3 className="text-sm font-black text-cyan-950">
-                                四級課程敘述語
-                              </h3>
-                              <p className="mt-1 text-[10px] font-bold text-zinc-500">
-                                切換四個進程後，可分別使用「微調此段」進行單卡 AI 修改。
-                              </p>
+                        {courseNarrativeSlices.length > 0 && (
+                          <div className="rounded-2xl border border-cyan-200 bg-white p-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <h3 className="text-sm font-black tracking-tight text-cyan-950">
+                                  四級課程敘述語
+                                </h3>
+                                <p className="mt-1 text-[10px] font-bold leading-5 text-zinc-500">
+                                  本頁為唯一權威版本：三欄全文、NPDL 指標原文對照與 AI 微調。
+                                </p>
+                              </div>
+                              <span className="w-fit rounded-full bg-cyan-100 px-3 py-1 text-[10px] font-black text-cyan-900">
+                                {courseAssessmentSeed.mode === "teacher_edited"
+                                  ? "教師已調整"
+                                  : "AI 草稿"}
+                              </span>
                             </div>
-                            <span className="rounded-full bg-cyan-100 px-3 py-1 text-[10px] font-black text-cyan-900">
-                              {courseAssessmentSeed.mode === "teacher_edited"
-                                ? "教師已調整"
-                                : "AI 草稿"}
-                            </span>
+                            <div
+                              className="mt-3 flex flex-wrap gap-2"
+                              role="tablist"
+                              aria-label="四級課程敘述語"
+                            >
+                              {courseNarrativeSlices.map((slice, index) => (
+                                <button
+                                  key={slice.levelName}
+                                  type="button"
+                                  role="tab"
+                                  aria-selected={assessmentNarrativeTab === index}
+                                  onClick={() => setAssessmentNarrativeTab(index)}
+                                  className={`min-h-10 rounded-xl px-4 py-2 text-xs font-black transition active:scale-[0.97] ${
+                                    assessmentNarrativeTab === index
+                                      ? "bg-[#173f36] text-white shadow-sm"
+                                      : "bg-[#eef4f0] text-zinc-600 hover:bg-[#e2ebe5]"
+                                  }`}
+                                >
+                                  {slice.levelName}
+                                </button>
+                              ))}
+                            </div>
+                            {courseNarrativeSlices.map((slice, index) =>
+                              assessmentNarrativeTab === index ? (
+                                <article
+                                  key={slice.levelName}
+                                  className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/70 p-4"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <h4 className="text-sm font-black text-cyan-950">
+                                      {slice.levelName} · 本課改寫
+                                    </h4>
+                                    {assessmentSeedCurrent && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const level = narrativeLevelKey(slice.levelName);
+                                          if (level) {
+                                            openAiRevision({
+                                              kind: "course_narrative_level",
+                                              level,
+                                            });
+                                          }
+                                        }}
+                                        disabled={revisionBusy || busyAction !== null}
+                                        className="rounded-lg border border-[#9fc2b4] bg-white px-2.5 py-1 text-[10px] font-black text-[#175247] transition active:scale-[0.97] hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                      >
+                                        微調此段
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                                    {[
+                                      ["進程辨識線索", slice.sub.life],
+                                      ["學生內在思考", slice.sub.emotion],
+                                      ["教學引導與鷹架", slice.sub.practice],
+                                    ].map(([label, text]) => (
+                                      <section
+                                        key={label}
+                                        className="rounded-xl border border-[#dfe8e2] bg-white p-3"
+                                      >
+                                        <h5 className="text-xs font-black text-zinc-900">
+                                          {label}
+                                        </h5>
+                                        <div className="mt-2 text-xs font-medium leading-6 text-zinc-700">
+                                          <NarrativeSectionBody text={text} />
+                                        </div>
+                                      </section>
+                                    ))}
+                                  </div>
+                                  {slice.originalText && (
+                                    <section className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50 p-3">
+                                      <h5 className="text-xs font-black text-cyan-950">
+                                        NPDL 指標原文對照
+                                      </h5>
+                                      <p className="mt-2 whitespace-pre-wrap text-xs font-medium leading-6 text-zinc-700">
+                                        {slice.originalText}
+                                      </p>
+                                    </section>
+                                  )}
+                                </article>
+                              ) : null,
+                            )}
                           </div>
-                          <NarrativeModule
-                            content={assessmentSeedModules[0]}
-                            indicator={selectedIndicator ?? null}
-                            highlightKey={null}
-                            onRefine={
-                              assessmentSeedCurrent
-                                ? (target) => {
-                                    const level = narrativeLevelKey(target.id);
-                                    if (level) {
-                                      openAiRevision({
-                                        kind: "course_narrative_level",
-                                        level,
-                                      });
-                                    }
-                                  }
-                                : undefined
-                            }
-                          />
-                        </div>
+                        )}
 
                         <div className="rounded-2xl border border-cyan-200 bg-white p-3 sm:p-4">
-                          <h3 className="mb-3 text-sm font-black text-cyan-950">
-                            完整課前 Q1–Q4
-                          </h3>
-                          <AssessmentModule
-                            content={assessmentSeedModules[1]}
-                            type="pre"
-                            accent="teal"
-                            form={assessmentForm}
-                            indicatorName={selectedIndicator?.name ?? ""}
-                            highlightKey={null}
-                            bankIds={new Set<string>()}
-                            q4Invalid={false}
-                            onSaveQuestion={() => undefined}
-                          />
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <h3 className="text-sm font-black text-cyan-950">
+                                {implementationGroupLabel("pre")}
+                              </h3>
+                              <p className="mt-1 text-[10px] font-bold leading-5 text-zinc-500">
+                                主畫面只顯示題組摘要；點開抽屜查看共用情境、選項與教師判讀。
+                              </p>
+                            </div>
+                            <span className="w-fit rounded-full bg-cyan-100 px-3 py-1 text-[10px] font-black text-cyan-900">
+                              {preAssessmentPreview?.questions.length ?? 0} 題
+                            </span>
+                          </div>
+                          <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            {(preAssessmentPreview?.questions ?? []).map(
+                              (question, index) => {
+                                const mapping =
+                                  courseAssessmentSeed.preMappings[index];
+                                const itemLabel = implementationItemWithFocus(
+                                  "pre",
+                                  index,
+                                  mapping?.focus,
+                                );
+                                return (
+                                  <article
+                                    key={question.rawTitle}
+                                    className="rounded-xl border border-cyan-100 bg-cyan-50/60 p-3"
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-cyan-700">
+                                          {itemLabel}
+                                        </p>
+                                        <h4 className="mt-1 text-xs font-black text-cyan-950">
+                                          {mapping?.purpose ?? "診斷題目"}
+                                        </h4>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setContentDrawer({
+                                            eyebrow: implementationGroupLabel("pre"),
+                                            title: `${itemLabel} · 題目內容`,
+                                            body: (
+                                              <AssessmentQuestionDetail
+                                                phase="pre"
+                                                index={index}
+                                                question={question}
+                                                scenario={preAssessmentPreview?.scenario}
+                                                focus={mapping?.focus}
+                                                purpose={mapping?.purpose}
+                                                criterionIds={mapping?.criterionIds}
+                                                observableEvidence={mapping?.observableEvidence}
+                                              />
+                                            ),
+                                          })
+                                        }
+                                        className="shrink-0 rounded-lg border border-cyan-200 bg-white px-2.5 py-1 text-[10px] font-black text-cyan-950 hover:bg-cyan-100"
+                                      >
+                                        查看完整內容
+                                      </button>
+                                    </div>
+                                    <p className="mt-2 line-clamp-2 text-xs font-medium leading-6 text-zinc-700">
+                                      {assessmentQuestionPreviewLine(question) ||
+                                        "（尚未解析題幹）"}
+                                    </p>
+                                    {mapping && (
+                                      <p className="mt-2 line-clamp-2 text-[10px] font-bold leading-5 text-cyan-800">
+                                        預期證據：{mapping.observableEvidence}
+                                      </p>
+                                    )}
+                                  </article>
+                                );
+                              },
+                            )}
+                          </div>
                         </div>
+
+                        <article className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-4">
+                          <h3 className="text-sm font-black text-cyan-950">
+                            產出診斷文件
+                          </h3>
+                          <p className="mt-1 text-xs font-bold leading-6 text-cyan-800">
+                            分別下載可編輯 Word 版學生題目卷與教師診斷指南，或建立
+                            Google Form 問卷供線上填答。
+                          </p>
+                          {!canExportDiagnosticDocuments && (
+                            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold leading-5 text-amber-900">
+                              請先產生診斷題組，Word 下載才會啟用。
+                            </p>
+                          )}
+                          {canExportDiagnosticDocuments && !assessmentSeedCurrent && (
+                            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold leading-5 text-amber-900">
+                              目前為舊版診斷題組；Word 仍可下載，但建議重新產生後再帶入評量。
+                            </p>
+                          )}
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            <button
+                              type="button"
+                              onClick={() => void downloadDiagnosticQuestionsDocx()}
+                              disabled={
+                                !canExportDiagnosticDocuments ||
+                                diagnosticDocExporting !== null
+                              }
+                              title={
+                                !canExportDiagnosticDocuments
+                                  ? "請先產生診斷題組"
+                                  : undefined
+                              }
+                              className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-4 text-xs font-black text-cyan-950 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {diagnosticDocExporting === "questions" ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <FileText className="h-4 w-4" />
+                              )}
+                              {diagnosticDocExporting === "questions"
+                                ? "產生 Word 中…"
+                                : "下載診斷題目 Word"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void downloadDiagnosticGuideDocx()}
+                              disabled={
+                                !canExportDiagnosticDocuments ||
+                                diagnosticDocExporting !== null
+                              }
+                              title={
+                                !canExportDiagnosticDocuments
+                                  ? "請先產生診斷題組"
+                                  : undefined
+                              }
+                              className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-4 text-xs font-black text-cyan-950 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {diagnosticDocExporting === "guide" ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <FileText className="h-4 w-4" />
+                              )}
+                              {diagnosticDocExporting === "guide"
+                                ? "產生 Word 中…"
+                                : "下載診斷指南 Word"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void exportDiagnosticGoogleForm()}
+                              disabled={
+                                !googleOAuth.ready ||
+                                formsExporting ||
+                                Boolean(diagnosticFormsExportIssue)
+                              }
+                              title={
+                                diagnosticFormsExportIssue ??
+                                googleClientIdIssue ??
+                                undefined
+                              }
+                              className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#173f36] px-4 text-xs font-black text-white hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-2"
+                            >
+                              {formsExporting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <ExternalLink className="h-4 w-4" />
+                              )}
+                              {!googleOAuth.ready
+                                ? "載入 Google Forms 設定…"
+                                : formsExporting
+                                  ? "建立問卷中…"
+                                  : googleClientIdIssue
+                                    ? googleClientIdManaged
+                                      ? "Google Forms 尚未完成部署"
+                                      : "設定 Google Forms"
+                                    : isGoogleFormExportEntryComplete(
+                                          formsExportRecord?.pre,
+                                        )
+                                      ? "診斷問卷已建立"
+                                      : formsExportRecord?.pre
+                                        ? "重試診斷問卷"
+                                        : "登入 Google 並建立診斷問卷"}
+                            </button>
+                          </div>
+                          {diagnosticDocStatus && (
+                            <p className="mt-2 rounded-lg border border-cyan-200 bg-white px-3 py-2 text-[10px] font-bold leading-5 text-cyan-900">
+                              {diagnosticDocStatus}
+                            </p>
+                          )}
+                          {googleClientIdManaged && !googleClientIdIssue && (
+                            <p className="mt-3 rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-bold text-cyan-900">
+                              已由部署管理者完成 Google Forms 設定；教師只需登入 Google
+                              帳號即可一鍵建立問卷。
+                            </p>
+                          )}
+                          {diagnosticFormsExportIssue && (
+                            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                              {diagnosticFormsExportIssue} Google 問卷匯出已停用。
+                            </p>
+                          )}
+                          {!diagnosticFormsExportIssue &&
+                            !googleClientIdManaged &&
+                            googleClientIdIssue && (
+                            <div className="mt-3 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+                              <span>
+                                尚未完成 Google Forms OAuth 設定；請先填入 Google
+                                OAuth Web Client ID。
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setGoogleFormsSettingsOpen(true)}
+                                className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-black hover:bg-amber-100"
+                              >
+                                開啟設定
+                              </button>
+                            </div>
+                          )}
+                          {formsExportStatus && (
+                            <p className="mt-3 rounded-lg bg-white px-3 py-2 text-xs font-bold text-[#7a4d0b]">
+                              {formsExportStatus}
+                            </p>
+                          )}
+                          {formsExportRecord?.pre && (
+                            <div className="mt-3 rounded-lg border border-cyan-200 bg-white p-3 text-xs">
+                              <p className="font-black text-zinc-800">
+                                診斷問卷｜
+                                {isGoogleFormExportEntryComplete(
+                                  formsExportRecord.pre,
+                                )
+                                  ? "已發布並接受回應"
+                                  : formsExportRecord.pre.stage ===
+                                      "content_applied"
+                                    ? "題目已完成，等待發布"
+                                    : formsExportRecord.pre.stage === "created"
+                                      ? "表單已建立，等待填入題目"
+                                      : "尚未建立完成"}
+                              </p>
+                              {formsExportRecord.pre.error && (
+                                <p className="mt-1 font-bold leading-relaxed text-red-700">
+                                  {formsExportRecord.pre.error}
+                                </p>
+                              )}
+                              <div className="mt-2 flex flex-wrap gap-3 font-black text-[#175247]">
+                                {formsExportRecord.pre.editUrl && (
+                                  <a
+                                    href={formsExportRecord.pre.editUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    編輯連結
+                                  </a>
+                                )}
+                                {isGoogleFormExportEntryComplete(
+                                  formsExportRecord.pre,
+                                ) &&
+                                  formsExportRecord.pre.responderUri && (
+                                    <a
+                                      href={formsExportRecord.pre.responderUri}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      學生作答連結
+                                    </a>
+                                  )}
+                              </div>
+                            </div>
+                          )}
+                        </article>
 
                         <details className="rounded-xl border border-cyan-200 bg-white">
                           <summary className="cursor-pointer px-4 py-3 text-sm font-black text-cyan-950">
-                            查看課前與預定課後 Q1–Q4 對齊
+                            查看四階參照對齊同步狀態
                           </summary>
-                          <div className="grid gap-4 border-t border-cyan-200 p-4 lg:grid-cols-2">
+                          <div className="space-y-3 border-t border-cyan-200 p-4">
                             {[
                               [
-                                "課前正式題組",
+                                implementationGroupLabel("pre"),
                                 courseAssessmentSeed.preMappings,
                               ],
                               [
-                                "課後預定證據目的",
+                                designReferenceLabel("post"),
                                 courseAssessmentSeed.plannedPostMappings,
                               ],
-                            ].map(([title, mappings]) => (
+                            ].map(([title, mappings], sectionIndex) => (
                               <div key={title as string}>
                                 <h4 className="text-xs font-black text-cyan-900">
                                   {title as string}
                                 </h4>
-                                <div className="mt-2 space-y-2">
+                                <ul className="mt-2 space-y-2">
                                   {(
                                     mappings as CourseAssessmentSeedV1["preMappings"]
                                   ).map((mapping) => (
-                                    <div
+                                    <li
                                       key={mapping.questionKey}
-                                      className="rounded-lg bg-cyan-50 p-3 text-xs leading-6 text-zinc-700"
+                                      className="flex flex-wrap items-center gap-2 rounded-lg bg-cyan-50 px-3 py-2 text-xs font-bold leading-6 text-zinc-700"
                                     >
-                                      <p className="font-black text-cyan-950">
-                                        {mapping.questionKey.toUpperCase()}｜
+                                      <span className="font-black text-cyan-950">
+                                        {implementationItemLabel(
+                                          sectionIndex === 0 ? "pre" : "post",
+                                          questionKeyToIndex(mapping.questionKey),
+                                        )}
+                                      </span>
+                                      <span className="text-zinc-500">·</span>
+                                      <span className="min-w-0 flex-1 truncate">
                                         {mapping.purpose}
-                                      </p>
-                                      <p className="mt-1 font-bold text-zinc-500">
-                                        成功指標：
-                                        {mapping.criterionIds.join("、")}｜預期證據：
-                                        {mapping.observableEvidence}
-                                      </p>
-                                    </div>
+                                      </span>
+                                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-900">
+                                        已同步
+                                      </span>
+                                    </li>
                                   ))}
-                                </div>
+                                </ul>
                               </div>
                             ))}
+                            <button
+                              type="button"
+                              onClick={() => selectDesignTab("evidence")}
+                              className="text-xs font-black text-amber-900 underline transition active:scale-[0.97]"
+                            >
+                              詳情請至評量證據分頁
+                            </button>
                           </div>
                         </details>
-
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <button
-                            type="button"
-                            onClick={downloadCourseAssessmentSeed}
-                            disabled={!assessmentSeedCurrent}
-                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-4 text-xs font-black text-cyan-950 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            <Download className="h-4 w-4" />
-                            下載課前 Markdown
-                          </button>
-                          <button
-                            type="button"
-                            onClick={printCourseAssessmentSeed}
-                            disabled={!assessmentSeedCurrent}
-                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-4 text-xs font-black text-cyan-950 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            <FileText className="h-4 w-4" />
-                            列印／另存 PDF
-                          </button>
-                        </div>
                       </div>
                     )}
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      evidencePlanConfirmedAt
-                        ? requestAction("assessment_seed")
-                        : scrollToDesignStep(
-                            "learning-design-evidence",
-                            "請先建立、編修並確認評量證據。",
-                          )
-                    }
-                    disabled={busyAction !== null}
-                    className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-800 py-3.5 text-sm font-black text-white hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    {busyAction === "assessment_seed" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <BookOpenCheck className="h-4 w-4" />
-                    )}
-                    {busyAction === "assessment_seed"
-                      ? "正在產生課程敘述與課前評量…"
-                      : !evidencePlanConfirmedAt
-                        ? "先建立並確認評量證據"
-                        : courseAssessmentSeed
-                          ? "重新產生並校準課前評量"
-                          : "AI 產生課程敘述與完整課前評量"}
-                  </button>
                 </section>
+                )}
 
+                {activeDesignTab === "delivery" && (
                 <section
                   id="learning-design-blueprint"
                   tabIndex={-1}
@@ -5718,14 +7007,13 @@ export default function CourseIdeationApp({
                               : "learning-design-assessment-seed",
                             assessmentSeedCurrent
                               ? "請先建立、編修並確認評量證據，再產生單元節次藍圖。"
-                              : "請先產生最新的課程敘述語與課前評量。",
+                              : "請先產生最新的課程敘述語與診斷題組。",
                           )
                     }
                     disabled={
-                      busyAction !== null ||
-                      unitConstraintErrors.length > 0
+                      busyAction !== null || unitConstraintErrors.length > 0
                     }
-                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-800 py-3.5 text-sm font-black text-white hover:bg-indigo-900 disabled:cursor-not-allowed disabled:opacity-45"
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-800 py-3.5 text-sm font-black text-white transition active:scale-[0.97] hover:bg-indigo-900 disabled:cursor-not-allowed disabled:opacity-45"
                   >
                     {busyAction === "blueprint" ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -5737,11 +7025,11 @@ export default function CourseIdeationApp({
                       : !evidencePlanConfirmedAt ||
                           alignmentAudit.evidencePlan !== "current"
                         ? "先建立並確認評量證據"
-                      : !assessmentSeedCurrent
-                        ? "先產生課程敘述與課前評量"
-                      : unitBlueprint
-                        ? "重新產生單元節次藍圖"
-                        : "AI 產生單元節次藍圖"}
+                        : !assessmentSeedCurrent
+                          ? "先產生課程敘述與診斷題組"
+                          : unitBlueprint
+                            ? "重新產生單元節次藍圖"
+                            : "AI 產生單元節次藍圖"}
                   </button>
 
                   {unitBlueprint && (
@@ -5770,76 +7058,12 @@ export default function CourseIdeationApp({
                               一次貼入 Gemini，即可產生全部節次教案，以及每節分為「知識基礎」與「NPDL 子向度思考」的學習單；後續直接在 Gemini 內修改。
                             </p>
                           </div>
-                          {lessonPromptStatus.find(
-                            (status) => status.lessonId === "unit-all",
-                          )?.generatedExternally && (
-                            <span className="shrink-0 rounded-full bg-emerald-200 px-3 py-1 text-[10px] font-black text-emerald-950">
-                              已在外部產生
-                            </span>
-                          )}
                         </div>
 
-                        {alignmentAudit.desiredResults === "current" &&
-                        alignmentAudit.evidencePlan === "current" &&
-                        alignmentAudit.unitBlueprint === "current" &&
-                        evidencePlanConfirmedAt &&
-                        unitBlueprintConfirmedAt ? (
-                          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-                            <button
-                              type="button"
-                              onClick={previewUnitPrompt}
-                              className="flex items-center justify-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-2.5 text-xs font-black text-emerald-950 hover:bg-emerald-100"
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                              預覽完整提示詞
-                            </button>
-                            <button
-                              type="button"
-                              onClick={copyUnitPrompt}
-                              className="flex items-center justify-center gap-1 rounded-lg bg-emerald-800 px-3 py-2.5 text-xs font-black text-white hover:bg-emerald-900"
-                            >
-                              <Clipboard className="h-3.5 w-3.5" />
-                              複製完整單元
-                            </button>
-                            <button
-                              type="button"
-                              onClick={downloadUnitPrompt}
-                              className="flex items-center justify-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-2.5 text-xs font-black text-emerald-950 hover:bg-emerald-100"
-                            >
-                              <Download className="h-3.5 w-3.5" />
-                              下載 Markdown
-                            </button>
-                            <a
-                              href="https://gemini.google.com/app"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center justify-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-2.5 text-xs font-black text-emerald-950 hover:bg-emerald-100"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              開啟 Gemini
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const status = lessonPromptStatus.find(
-                                  (candidate) =>
-                                    candidate.lessonId === "unit-all",
-                                );
-                                updateLessonPromptStatus("unit-all", {
-                                  generatedExternally:
-                                    !status?.generatedExternally,
-                                });
-                              }}
-                              className="flex items-center justify-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-2.5 text-xs font-black text-emerald-950 hover:bg-emerald-100"
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                              {lessonPromptStatus.find(
-                                (status) => status.lessonId === "unit-all",
-                              )?.generatedExternally
-                                ? "取消外部標記"
-                                : "標記外部產生"}
-                            </button>
-                          </div>
+                        {canvasReady ? (
+                          <p className="mt-4 rounded-lg border border-emerald-200 bg-white p-3 text-xs font-bold leading-6 text-emerald-900">
+                            Canvas 預覽、複製、下載與外部產生標記已集中到頁面底部「交付中心」。
+                          </p>
                         ) : (
                           <p className="mt-4 rounded-lg border border-red-200 bg-white p-3 text-xs font-bold text-red-800">
                             課程限制或評量證據已調整，請使用上方按鈕重新產生單元節次藍圖。
@@ -5895,7 +7119,7 @@ export default function CourseIdeationApp({
                             <button
                               type="button"
                               onClick={confirmUnitBlueprint}
-                              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-800 py-3 text-sm font-black text-white hover:bg-indigo-900"
+                              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-400 bg-white py-3 text-sm font-black text-indigo-950 transition active:scale-[0.97] hover:bg-indigo-50"
                             >
                               <Check className="h-4 w-4" />
                               確認藍圖並更新 Canvas
@@ -6194,7 +7418,7 @@ export default function CourseIdeationApp({
                           <button
                             type="button"
                             onClick={confirmUnitBlueprint}
-                            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-800 py-3 text-sm font-black text-white hover:bg-indigo-900"
+                            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-400 bg-white py-3 text-sm font-black text-indigo-950 transition active:scale-[0.97] hover:bg-indigo-50"
                           >
                             <Check className="h-4 w-4" />
                             確認藍圖並啟用 Canvas
@@ -6339,45 +7563,145 @@ export default function CourseIdeationApp({
                     </div>
                   )}
                 </section>
+                )}
 
-                <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm sm:p-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                {activeDesignTab === "delivery" && (
+                <section
+                  id="course-delivery-center"
+                  className="scroll-mt-24 rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm sm:p-6"
+                >
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                      <h2 className="text-lg font-black text-emerald-950">
-                        {alignmentAudit.desiredResults === "current" &&
-                        alignmentAudit.evidencePlan === "current" &&
-                        evidencePlanConfirmedAt &&
-                        assessmentSeedCurrent &&
-                        alignmentAudit.unitBlueprint === "current" &&
-                        unitBlueprintConfirmedAt
+                      <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                        交付中心
+                      </p>
+                      <h2 className="mt-1 text-xl font-black text-emerald-950">
+                        {handoffReady
                           ? "已可帶入評量設計"
-                          : "完成課前評量與節次藍圖後可帶入評量"}
+                          : "完成診斷題組與節次藍圖後可帶入評量"}
                       </h2>
-                      <p className="mt-1 text-xs font-bold leading-6 text-emerald-800">
-                        將唯讀帶入課程敘述語、完整課前 Q1–Q4、預定課後證據目的與節次藍圖；確認預覽不會呼叫 AI。
+                      <p className="mt-1 max-w-3xl text-xs font-bold leading-6 text-emerald-800">
+                        Gemini Canvas 完整提示詞與評量工作室交接集中在這裡；確認預覽不會呼叫 AI。
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handoffToAssessment}
-                      disabled={
-                        alignmentAudit.desiredResults !== "current" ||
-                        alignmentAudit.evidencePlan !== "current" ||
-                        !evidencePlanConfirmedAt ||
-                        !assessmentSeedCurrent ||
-                        alignmentAudit.unitBlueprint !== "current" ||
-                        !unitBlueprintConfirmedAt
-                      }
-                      className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#173f36] px-5 py-3 text-sm font-black text-white hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      帶入評量設計
-                      <ArrowRight className="h-4 w-4" />
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <SectionStatusBadge
+                        status={blueprintStatus}
+                        label={canvasReady ? "Canvas 可用" : "Canvas 未就緒"}
+                      />
+                      <SectionStatusBadge
+                        status={handoffReady ? "ready" : "locked"}
+                        label={handoffReady ? "可交接" : "交接未開放"}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 lg:grid-cols-2">
+                    <article className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h3 className="text-sm font-black text-emerald-950">
+                            Gemini Canvas
+                          </h3>
+                          <p className="mt-1 text-xs font-bold leading-6 text-emerald-800">
+                            {unitBlueprint
+                              ? `${unitBlueprint.lessons.length} 節完整教案與學習單提示詞`
+                              : "確認節次藍圖後開放完整提示詞。"}
+                          </p>
+                        </div>
+                        {unitPromptGenerated && (
+                          <span className="shrink-0 rounded-full bg-emerald-200 px-3 py-1 text-[10px] font-black text-emerald-950">
+                            已在外部產生
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-3 grid gap-2">
+                        <button
+                          type="button"
+                          onClick={previewUnitPrompt}
+                          disabled={!canvasReady}
+                          className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <FileText className="h-4 w-4" />
+                          預覽完整提示詞
+                        </button>
+                        <button
+                          type="button"
+                          onClick={copyUnitPrompt}
+                          disabled={!canvasReady}
+                          className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-800 px-4 text-xs font-black text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Clipboard className="h-4 w-4" />
+                          複製完整單元
+                        </button>
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                          <button
+                            type="button"
+                            onClick={downloadUnitPrompt}
+                            disabled={!canvasReady}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <Download className="h-4 w-4" />
+                            下載 Markdown
+                          </button>
+                          <a
+                            href="https://gemini.google.com/app"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 ${
+                              canvasReady ? "" : "pointer-events-none opacity-40"
+                            }`}
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            開啟 Gemini
+                          </a>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const status = lessonPromptStatus.find(
+                              (candidate) => candidate.lessonId === "unit-all",
+                            );
+                            updateLessonPromptStatus("unit-all", {
+                              generatedExternally:
+                                !status?.generatedExternally,
+                            });
+                          }}
+                          disabled={!canvasReady}
+                          className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Check className="h-4 w-4" />
+                          {unitPromptGenerated
+                            ? "取消外部標記"
+                            : "標記外部產生"}
+                        </button>
+                      </div>
+                    </article>
+
+                    <article className="rounded-xl border border-[#b9ccc2] bg-[#f7faf8] p-4">
+                      <h3 className="text-sm font-black text-[#173f36]">
+                        評量工作室
+                      </h3>
+                      <p className="mt-1 text-xs font-bold leading-6 text-zinc-600">
+                        唯讀帶入課程敘述語、診斷題組、遷移性四階參照與節次藍圖。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handoffToAssessment}
+                        disabled={!handoffReady}
+                        className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#173f36] px-5 text-sm font-black text-white hover:bg-[#0f312a] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        帶入評量設計
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </article>
                   </div>
                 </section>
+                )}
               </>
             )}
-          </div>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </main>
 
@@ -6430,8 +7754,8 @@ export default function CourseIdeationApp({
                         `${assessmentDesignContext.curriculum.length} 項課綱 · ${assessmentDesignContext.successCriteria.length} 項指標`,
                       ],
                       [
-                        "課程敘述與前測",
-                        `4 級敘述 · ${courseAssessmentSeed.preMappings.length} 題正式前測`,
+                        "課程敘述與診斷題組",
+                        `4 級敘述 · ${courseAssessmentSeed.preMappings.length} 題診斷題組`,
                       ],
                       [
                         "節次藍圖",
@@ -6492,13 +7816,13 @@ export default function CourseIdeationApp({
 
                   <details className="rounded-xl border border-zinc-200 bg-white">
                     <summary className="cursor-pointer px-4 py-3 text-sm font-black text-zinc-800">
-                      課前 Q1–Q4 與預定課後證據目的
+                      診斷性四階參照與遷移性四階參照
                     </summary>
                     <div className="grid gap-3 border-t border-zinc-100 p-4 sm:grid-cols-2">
                       {[
-                        ["課前", courseAssessmentSeed.preMappings],
-                        ["課後", courseAssessmentSeed.plannedPostMappings],
-                      ].map(([label, mappings]) => (
+                        [designReferenceLabel("pre"), courseAssessmentSeed.preMappings],
+                        [designReferenceLabel("post"), courseAssessmentSeed.plannedPostMappings],
+                      ].map(([label, mappings], sectionIndex) => (
                         <div key={label as string}>
                           <p className="text-xs font-black text-zinc-800">
                             {label as string}
@@ -6512,7 +7836,10 @@ export default function CourseIdeationApp({
                                 className="rounded-lg bg-zinc-50 p-3 text-xs leading-6 text-zinc-700"
                               >
                                 <span className="font-black">
-                                  {mapping.questionKey.toUpperCase()}
+                                  {implementationItemLabel(
+                                    sectionIndex === 0 ? "pre" : "post",
+                                    questionKeyToIndex(mapping.questionKey),
+                                  )}
                                 </span>
                                 ｜{mapping.purpose}
                               </p>
@@ -6544,6 +7871,11 @@ export default function CourseIdeationApp({
           )}
       </AnimatePresence>
 
+      <ContentDrawer
+        content={contentDrawer}
+        onClose={() => setContentDrawer(null)}
+      />
+
       <ConsentModal
         open={consentOpen}
         provider={providerName(settings.model)}
@@ -6558,7 +7890,7 @@ export default function CourseIdeationApp({
             : pendingAction === "evidence"
               ? "逆向設計評量證據生成"
               : pendingAction === "assessment_seed"
-                ? "課程敘述語與完整課前評量生成"
+                ? "課程敘述語與診斷題組生成"
               : pendingAction === "blueprint"
                 ? "單元節次藍圖生成"
                 : "核心關鍵字分析"
@@ -6598,6 +7930,13 @@ export default function CourseIdeationApp({
             void copyPromptText(promptPreview, text, label);
           }
         }}
+      />
+      <GoogleFormsSettingsModal
+        open={googleFormsSettingsOpen}
+        clientId={googleClientId}
+        managed={googleClientIdManaged}
+        onClose={() => setGoogleFormsSettingsOpen(false)}
+        onChange={googleOAuth.updateStoredClientId}
       />
     </div>
   );

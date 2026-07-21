@@ -63,8 +63,11 @@ import {
   renderCourseAssessmentSeedMarkdown,
 } from "@/lib/course-assessment";
 
-const MANAGED_GOOGLE_OAUTH_CLIENT_ID =
-  import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID?.trim() ?? "";
+import {
+  readStoredGoogleOAuthClientId,
+  resolveGoogleOAuthClientId,
+} from "@/lib/google-oauth-config";
+import { useGoogleOAuthClientId } from "@/hooks/useGoogleOAuthClientId";
 
 function readSettings() {
   const model = readJson<string | null>(KEYS.model, null);
@@ -73,10 +76,7 @@ function readSettings() {
     geminiKey: localStorage.getItem(KEYS.geminiKey) ?? "",
     openaiKey: localStorage.getItem(KEYS.openaiKey) ?? "",
     xaiKey: localStorage.getItem(KEYS.xaiKey) ?? "",
-    googleClientId:
-      MANAGED_GOOGLE_OAUTH_CLIENT_ID
-      || localStorage.getItem(KEYS.googleOAuthClientId)
-      || "",
+    googleClientId: resolveGoogleOAuthClientId(readStoredGoogleOAuthClientId()),
     model:
       model && allowed.includes(model as (typeof allowed)[number])
         ? model
@@ -90,6 +90,7 @@ interface UseAppStateOptions {
 }
 
 export function useAppState(options: UseAppStateOptions = {}) {
+  const googleOAuth = useGoogleOAuthClientId();
   const [form, setForm] = useState<CourseForm>(DEFAULT_FORM);
   const [assessmentDocument, setAssessmentDocument] = useState<AssessmentDocument | null>(null);
   const [assessmentDesignContext, setAssessmentDesignContext] =
@@ -116,8 +117,8 @@ export function useAppState(options: UseAppStateOptions = {}) {
   const [draftStorageReady, setDraftStorageReady] = useState(false);
   const [localSettings, setSettings] = useState(readSettings);
   const settings = options.aiSettings
-    ? { ...localSettings, ...options.aiSettings }
-    : localSettings;
+    ? { ...localSettings, ...options.aiSettings, googleClientId: googleOAuth.clientId }
+    : { ...localSettings, googleClientId: googleOAuth.clientId };
   const [bank, setBank] = useState<SavedQuestion[]>(() =>
     readJson<SavedQuestion[]>(KEYS.questionBank, []),
   );
@@ -158,8 +159,10 @@ export function useAppState(options: UseAppStateOptions = {}) {
       writeStorage(KEYS.xaiKey, localSettings.xaiKey);
       writeJson(KEYS.model, localSettings.model);
     }
-    writeStorage(KEYS.googleOAuthClientId, localSettings.googleClientId);
-  }, [localSettings, options.aiSettings]);
+    if (!googleOAuth.managed) {
+      writeStorage(KEYS.googleOAuthClientId, localSettings.googleClientId);
+    }
+  }, [googleOAuth.managed, localSettings, options.aiSettings]);
 
   useEffect(() => {
     setConnectionStatus(null);
@@ -186,7 +189,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
         )
       ) {
         throw new Error(
-          "課程敘述語或課前評量尚未建立，或已因上游修改而過期。",
+          "課程敘述語或診斷題組尚未建立，或已因上游修改而過期。",
         );
       }
       if (
@@ -241,7 +244,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
       setPendingProjectUpdate(null);
       setDraftPrompt(null);
       setHandoffNotice(
-        "已唯讀帶入課程敘述語與完整課前評量；可直接分析課程與前測，產生課後評量。",
+        "已唯讀帶入課程敘述語與診斷題組；可直接分析課程與診斷題組，產生遷移題組。",
       );
       localStorage.removeItem(KEYS.draftDismissed);
       removeStorage(KEYS.courseIdeationHandoff);
@@ -261,7 +264,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
           designContext.sourceFingerprint,
       )
     ) {
-      setError("更新後的課程端前測資料不完整或已過期。");
+      setError("更新後的課程端診斷題組資料不完整或已過期。");
       return;
     }
     const handoff = buildCourseIdeationHandoff(
@@ -362,7 +365,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
       setDraftPrompt(null);
       setHandoffNotice(
         importedCurrentSeed
-          ? "已唯讀帶入課程敘述語與完整課前評量；可直接分析課程與前測，產生課後評量。"
+          ? "已唯讀帶入課程敘述語與診斷題組；可直接分析課程與診斷題組，產生遷移題組。"
           : "已帶入課程發想結果，請確認推薦子向度後再生成評量。",
       );
       removeStorage(KEYS.courseIdeationHandoff);
@@ -603,17 +606,17 @@ export function useAppState(options: UseAppStateOptions = {}) {
       const target: AssessmentTarget = refineTarget.type === "progression"
         ? "narrative"
         : refineTarget.type === "scenario"
-          ? (refineTarget.id === "課前" ? "pre.scenario" : "post.scenario")
+          ? (refineTarget.id === "診斷題組" ? "pre.scenario" : "post.scenario")
           : `${activeModuleTab === 1 ? "pre" : "post"}.${refineTarget.id.toLowerCase().replace(/[^q1-4]/g, "")}` as AssessmentTarget;
       if (refineTarget.type === "question" && activeModuleTab === 0) {
-        throw new Error("無法判斷題目所屬模組，請切換至課前或課後分頁後再微調。");
+        throw new Error("無法判斷題目所屬模組，請切換至診斷或遷移題組分頁後再微調。");
       }
       if (
         assessmentDesignContext?.courseAssessmentSeed &&
         !target.startsWith("post.")
       ) {
         throw new Error(
-          "課程敘述語與課前評量由課程端管理；請回課程設計工作區修改。",
+          "課程敘述語與診斷題組由課程端管理；請回課程設計工作區修改。",
         );
       }
       const targets = [target];
@@ -748,7 +751,7 @@ export function useAppState(options: UseAppStateOptions = {}) {
     restoreDraft,
     dismissDraft,
     settings,
-    googleClientIdManaged: Boolean(MANAGED_GOOGLE_OAUTH_CLIENT_ID),
+    googleClientIdManaged: googleOAuth.managed,
     setSettings,
     bank,
     saveQuestion,

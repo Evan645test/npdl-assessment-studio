@@ -154,7 +154,7 @@ export function buildStructuredPostPrompt(
 ): StructuredGenerationPrompt {
   const seed = designContext.courseAssessmentSeed;
   if (!seed) {
-    throw new Error("缺少課程端課前評量，無法產生課後評量。");
+    throw new Error("缺少課程端診斷題組，無法產生遷移題組。");
   }
   const notes = implementationNotes.trim().slice(0, 5000);
   return {

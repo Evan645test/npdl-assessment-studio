@@ -1,4 +1,5 @@
 import { parseAssessmentModule, parseGuidedQ4Text } from "@/lib/parse-assessment";
+import { implementationGroupLabel } from "@/lib/assessment-terminology";
 import { hasStructuredQ4Scaffold } from "@/lib/q4-guidance";
 import type { CourseForm } from "@/types";
 
@@ -219,11 +220,11 @@ type GoogleFormItem = ReturnType<typeof textItem> | ReturnType<typeof choiceItem
 
 function buildModuleItems(content: string, type: GoogleFormModule): GoogleFormItem[] {
   const parsed = parseAssessmentModule(content, type);
-  const label = type === "pre" ? "課前診斷" : "課後遷移";
+  const label = type === "pre" ? "診斷題組" : "遷移題組";
   const items: GoogleFormItem[] = [
     textItem(
       "作答說明",
-      "Q1–Q3 為必填單選題，依序了解概念理解、行動應用與生活遷移；Q4 也分成相同三個必填長答欄。請用自己的話作答，不必猜標準句子。",
+      "診斷一～三為必填單選題，依序了解概念理解、行動應用與生活遷移；第四題也分成相同三個必填長答欄。請用自己的話作答，不必猜標準句子。",
     ),
     textItem(`${label}｜共用情境`, parsed.scenario || "（尚未解析共用情境）"),
   ];
@@ -241,7 +242,7 @@ function buildModuleItems(content: string, type: GoogleFormModule): GoogleFormIt
           ));
         }
       } else if (question.rawTitle.includes("[引導式簡答題]")) {
-        throw new Error(`${label} Q4 未通過品質檢查，請重新生成評量後再匯出 Google 問卷。`);
+        throw new Error(`${label}第四題未通過品質檢查，請重新生成評量後再匯出 Google 問卷。`);
       } else {
         // 舊版草稿維持單一長答欄相容性。
         items.push(paragraphItem(title, false));
@@ -268,12 +269,12 @@ export function getGoogleFormsModuleExportIssue(
   content: string,
   type: GoogleFormModule,
 ): string | null {
-  const label = type === "pre" ? "課前診斷" : "課後遷移";
+  const label = type === "pre" ? "診斷題組" : "遷移題組";
   if (!content.trim()) return `${label}尚未產生。`;
   const question = parseAssessmentModule(content, type).questions.find((item) =>
     item.rawTitle.includes("Q4"),
   );
-  if (!question) return `${label}缺少 Q4，請重新生成評量。`;
+  if (!question) return `${label}缺少第四題，請重新生成評量。`;
   if (!question.rawTitle.includes("[引導式簡答題]")) return null;
   if (
     !hasStructuredQ4Scaffold(
@@ -281,7 +282,7 @@ export function getGoogleFormsModuleExportIssue(
       parseGuidedQ4Text(question.text).steps,
     )
   ) {
-    return `${label} Q4 未通過品質檢查，請重新生成評量。`;
+    return `${label}第四題未通過品質檢查，請重新生成評量。`;
   }
   return null;
 }
@@ -350,7 +351,7 @@ export function assessmentExportFingerprint(
 }
 
 function titleFor(form: CourseForm, type: GoogleFormModule): string {
-  return `${form.subject}｜${form.activityName}｜${type === "pre" ? "課前診斷" : "課後遷移"}`;
+  return `${form.subject}｜${form.activityName}｜${implementationGroupLabel(type)}`;
 }
 
 async function createOneForm(
@@ -474,7 +475,7 @@ export async function createGoogleFormsFromAssessment({
   const trimmedClientId = normalizeGoogleOAuthClientId(clientId);
   const normalizedPostContent = postContent ?? "";
   if (!preContent.trim()) {
-    throw new Error("需要先產生課前診斷，才能匯出 Google 問卷。");
+    throw new Error("需要先產生診斷題組，才能匯出 Google 問卷。");
   }
   const issue = getGoogleFormsExportIssue(preContent, normalizedPostContent);
   if (issue) throw new Error(issue);

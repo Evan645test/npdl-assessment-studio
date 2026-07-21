@@ -173,7 +173,7 @@ async function verifyGuidedQ4Ui(name, viewport) {
     }
   }
   await page.getByText("教師進程判定標準（點擊展開）", { exact: true }).click();
-  await page.getByText("系統判讀建議", { exact: true }).waitFor();
+  await page.getByText("進程跨界線索", { exact: true }).waitFor();
   await page.getByText("萌芽 → 發展", { exact: true }).waitFor();
   await page.getByText("發展 → 精熟", { exact: true }).waitFor();
   await page.getByText("供教師對照，非自動評分", { exact: true }).waitFor();
@@ -187,7 +187,7 @@ async function verifyGuidedQ4Ui(name, viewport) {
   await page.getByText("不取代 NPDL 四層進程", { exact: true }).waitFor();
   const exportButton = page.getByRole("button", { name: "登入 Google 並建立課前／課後問卷" });
   await exportButton.click();
-  await page.getByText("課前與課後問卷均已建立。", { exact: true }).waitFor();
+  await page.getByText("診斷與遷移問卷均已建立。", { exact: true }).waitFor();
   if (formCreateCount !== 2 || batchUpdateCount !== 2 || publishCount !== 2) {
     throw new Error(
       `${name} Google Forms API 流程不完整：create=${formCreateCount}, batch=${batchUpdateCount}, publish=${publishCount}`,

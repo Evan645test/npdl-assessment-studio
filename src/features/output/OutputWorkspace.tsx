@@ -53,13 +53,13 @@ interface OutputWorkspaceProps {
   onOpenGoogleFormsSettings: () => void;
 }
 
-const TAB_LABELS = ["課程敘述語", "課前診斷", "課後遷移"] as const;
+const TAB_LABELS = ["課程敘述語", "診斷題組", "遷移題組"] as const;
 
 const GENERATION_STAGES: Array<{ phase: GenerationPhase; label: string }> = [
   { phase: "connecting", label: "連線" },
   { phase: "narrative", label: "生成進程描述" },
-  { phase: "pre", label: "生成課前" },
-  { phase: "post", label: "生成課後" },
+  { phase: "pre", label: "生成診斷題組" },
+  { phase: "post", label: "生成遷移題組" },
   { phase: "rendering", label: "格式組裝" },
   { phase: "validating", label: "品質檢查" },
   { phase: "repairing", label: "局部修復" },
@@ -284,15 +284,15 @@ export function OutputWorkspace({
       ) ?? [],
   );
   const validationQ4Issue = invalidQ4Targets.has("pre.q4")
-    ? "課前診斷 Q4 未通過品質檢查，請重新生成評量。"
+    ? "診斷題組第四題未通過品質檢查，請重新生成評量。"
     : invalidQ4Targets.has("post.q4")
-      ? "課後遷移 Q4 未通過品質檢查，請重新生成評量。"
+      ? "遷移題組第四題未通過品質檢查，請重新生成評量。"
       : null;
   const formsExportIssue =
     validationQ4Issue ??
     (modules[1]
       ? getGoogleFormsExportIssue(modules[1], modules[2] ?? "")
-      : "尚未產生課前診斷。");
+      : "尚未產生診斷題組。");
   const googleClientIdIssue = getGoogleOAuthClientIdIssue(googleClientId);
 
   const handleExportGoogleForm = async () => {
@@ -307,8 +307,8 @@ export function OutputWorkspace({
     setFormsExporting(true);
     setFormsExportStatus(
       modules[2]
-        ? "正在登入 Google，授權後會依序建立課前與課後兩份問卷。"
-        : "正在登入 Google，授權後會建立課前診斷問卷。",
+        ? "正在登入 Google，授權後會依序建立診斷與遷移兩份問卷。"
+        : "正在登入 Google，授權後會建立診斷題組問卷。",
     );
     try {
       const result = await createGoogleFormsFromAssessment({
@@ -327,8 +327,8 @@ export function OutputWorkspace({
         .filter(isGoogleFormExportEntryComplete).length;
       setFormsExportStatus(complete === expected
         ? expected === 2
-          ? "課前與課後問卷均已建立。"
-          : "課前診斷問卷已建立；課後評量完成後可再建立課後問卷。"
+          ? "診斷與遷移問卷均已建立。"
+          : "診斷題組問卷已建立；遷移題組完成後可再建立第二份問卷。"
         : `已完成 ${complete} 份；未完成的問卷可按同一按鈕重試，已完成者不會重建。`);
     } catch (error) {
       setFormsExportStatus(error instanceof Error ? error.message : "Google 問卷建立失敗。");
@@ -434,8 +434,8 @@ export function OutputWorkspace({
                     <p className="text-sm font-black text-zinc-900">Google 問卷匯出</p>
                     <p className="mt-1 text-xs font-bold text-zinc-500">
                       {modules[2]
-                        ? "將課前診斷與課後遷移分別轉成 Google 表單；只輸出 Q1–Q4。"
-                        : "課程端完整前測已可先轉成 Google 表單；課後完成後再建立第二份問卷。"}
+                        ? "將診斷題組與遷移題組分別轉成 Google 表單。"
+                        : "課程端診斷題組已可先轉成 Google 表單；遷移題組完成後再建立第二份問卷。"}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
@@ -467,14 +467,14 @@ export function OutputWorkspace({
                             ? "兩份問卷已建立"
                             : formsExportRecord?.pre || formsExportRecord?.post
                               ? "重試未完成問卷"
-                              : "登入 Google 並建立課前／課後問卷"
+                              : "登入 Google 並建立診斷／遷移問卷"
                           : isGoogleFormExportEntryComplete(
                                 formsExportRecord?.pre,
                               )
-                            ? "課前問卷已建立"
+                            ? "診斷問卷已建立"
                             : formsExportRecord?.pre
-                              ? "重試課前問卷"
-                              : "登入 Google 並建立課前問卷"}
+                              ? "重試診斷問卷"
+                              : "登入 Google 並建立診斷問卷"}
                     </button>
                   </div>
                 </div>
@@ -505,7 +505,7 @@ export function OutputWorkspace({
                     {(["pre", "post"] as const).map((type) => {
                       const entry = formsExportRecord[type];
                       if (!entry) return null;
-                      const label = type === "pre" ? "課前診斷" : "課後遷移";
+                      const label = type === "pre" ? "診斷題組" : "遷移題組";
                       const statusLabel = isGoogleFormExportEntryComplete(entry)
                         ? "已發布並接受回應"
                         : entry.stage === "content_applied"
@@ -538,7 +538,7 @@ export function OutputWorkspace({
                       完整課程與評量證據包
                     </p>
                     <p className="mt-1 text-xs font-bold text-cyan-800">
-                      包含課綱、學習終點、真實任務、四級規準、Q1–Q4 對齊表、課程敘述語及課前／課後題組。
+                      包含課綱、學習終點、真實任務、四級規準、四階參照對齊表、課程敘述語及診斷／遷移題組。
                     </p>
                   </div>
                   <div className="grid shrink-0 grid-cols-2 gap-2">
@@ -601,10 +601,10 @@ export function OutputWorkspace({
               assessmentDesignContext?.courseAssessmentSeed && (
                 <div className="rounded-xl border border-dashed border-cyan-300 bg-cyan-50 p-8 text-center">
                   <p className="text-base font-black text-cyan-950">
-                    課後評量尚未產生
+                    遷移題組尚未產生
                   </p>
                   <p className="mt-2 text-sm font-bold leading-7 text-cyan-800">
-                    課程敘述語與課前 Q1–Q4 已由課程端唯讀帶入。請在上方補充實際教學差異（可留空），再按「分析課程與前測，產生課後評量」。
+                    課程敘述語與診斷題組已由課程端唯讀帶入。請在上方補充實際教學差異（可留空），再按「分析課程與診斷題組，產生遷移題組」。
                   </p>
                 </div>
               )}

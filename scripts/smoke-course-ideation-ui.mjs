@@ -427,6 +427,23 @@ const browser = await chromium.launch({
 const courseWorkspace = (page) =>
   page.locator('section[aria-label="課程設計工作區"]');
 
+const nextCourseAction = (page) =>
+  courseWorkspace(page).locator('button[aria-label="目前流程下一步"]');
+
+async function openCourseInputDrawer(page) {
+  await courseWorkspace(page)
+    .getByRole("button", { name: "編輯課程輸入", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "編輯課程輸入" });
+  await drawer.waitFor();
+  return drawer;
+}
+
+async function closeCourseInputDrawer(drawer) {
+  await drawer.getByRole("button", { name: "關閉課程輸入" }).click();
+  await drawer.waitFor({ state: "hidden" });
+}
+
 async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   const context = await browser.newContext({ viewport, locale: "zh-TW" });
   const page = await context.newPage();
@@ -577,9 +594,7 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   if (migratedModels.shared !== JSON.stringify("gemini-2.5-flash")) {
     throw new Error(`${name} 舊 Puter 設定未遷移至共用 Gemini 模型`);
   }
-  await courseWorkspace(page)
-    .getByRole("button", { name: "AI 分析核心關鍵字" })
-    .click();
+  await nextCourseAction(page).click();
 
   const consent = page.getByRole("dialog", { name: "首次 AI 資料傳送同意" });
   await consent.waitFor();
@@ -623,8 +638,9 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   ) {
     throw new Error(`${name} 初次校準前未清楚顯示兩類 AI 推薦尚未產生`);
   }
+  await nextCourseAction(page).click();
   await courseWorkspace(page)
-    .getByRole("button", { name: "進行 108 課綱與 6Cs 校準" })
+    .getByRole("tab", { name: /校準/ })
     .click();
   await courseWorkspace(page)
     .getByRole("heading", { name: "6Cs 子向度推薦" })
@@ -632,7 +648,7 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   if (
     (await courseWorkspace(page)
       .getByRole("button", { name: "AI 修改這張卡" })
-      .count()) < 20
+      .count()) < 8
   ) {
     throw new Error(`${name} 課綱與學習終點卡片缺少獨立 AI 修改入口`);
   }
@@ -691,9 +707,6 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       throw new Error(`${name} 已選課綱 ${code} 未顯示 AI 推薦標籤`);
     }
   }
-  await page
-    .getByText("能引用資料說明至少兩項氣候風險。", { exact: true })
-    .waitFor();
   if (name === "desktop") {
     await curriculumCard
       .getByLabel("AI 推薦學習表現")
@@ -703,7 +716,21 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       fullPage: false,
     });
   }
-
+  if (
+    (await courseWorkspace(page)
+      .getByText("註：關鍵字｜", { exact: false })
+      .count()) !== 2
+  ) {
+    throw new Error(`${name} 未在兩個推薦項目顯示關鍵字註記`);
+  }
+  await courseWorkspace(page)
+    .getByText("查看四個學生版學習進程", { exact: true })
+    .click();
+  for (const progression of ["證據有限", "萌芽", "發展", "精熟"]) {
+    await courseWorkspace(page)
+      .getByText(progression, { exact: true })
+      .waitFor();
+  }
   if (requestCount !== 4) {
     throw new Error(`${name} AI 請求次數錯誤：${requestCount}`);
   }
@@ -713,22 +740,28 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   if (await page.getByRole("dialog", { name: "首次 AI 資料傳送同意" }).count()) {
     throw new Error(`${name} 第二次 AI 呼叫不應再次要求瀏覽器同意`);
   }
-  if (
-    (await courseWorkspace(page)
-      .getByText("註：關鍵字｜", { exact: false })
-      .count()) !== 2
-  ) {
-    throw new Error(`${name} 未在兩個推薦項目顯示關鍵字註記`);
-  }
-
   await courseWorkspace(page)
-    .getByText("查看四個學生版學習進程", { exact: true })
+    .getByRole("tab", { name: /學習終點/ })
     .click();
-  for (const progression of ["證據有限", "萌芽", "發展", "精熟"]) {
+  if (
     await courseWorkspace(page)
-      .getByText(progression, { exact: true })
-      .waitFor();
+      .getByRole("button", { name: "生成學習終點", exact: true })
+      .isVisible()
+      .catch(() => false)
+  ) {
+    await courseWorkspace(page)
+      .getByRole("button", { name: "生成學習終點", exact: true })
+      .click();
   }
+  await page
+    .getByRole("button", { name: "確認學習終點，開放評量證據" })
+    .click();
+  await courseWorkspace(page)
+    .getByText("教師已確認", { exact: true })
+    .waitFor();
+  await courseWorkspace(page)
+    .getByText("能引用資料說明至少兩項氣候風險。", { exact: true })
+    .waitFor();
   for (const outcome of ["01 知識基礎", "02 素養子向度", "03 四要素整合實踐"]) {
     await courseWorkspace(page).getByText(outcome, { exact: true }).waitFor();
   }
@@ -737,27 +770,18 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       .getByRole("heading", { name: element, exact: true })
       .waitFor();
   }
-
-  await page
-    .getByRole("button", { name: "確認並鎖定學習終點" })
-    .click();
+  await nextCourseAction(page).click();
   await courseWorkspace(page)
-    .getByText("教師已確認", { exact: true })
+    .getByRole("tab", { name: /評量證據/ })
     .waitFor();
-  await courseWorkspace(page)
-    .getByRole("button", { name: "AI 建立完整評量證據" })
-    .click();
   await page
     .getByRole("heading", { name: "真實總結任務" })
     .first()
     .waitFor();
-  const evidenceRevisionButtonCount = await courseWorkspace(page)
-    .getByRole("button", { name: "AI 修改這張卡" })
-    .count();
-  if (evidenceRevisionButtonCount < 35) {
-    throw new Error(
-      `${name} 評量證據卡片缺少獨立 AI 修改入口：${evidenceRevisionButtonCount}`,
-    );
+  for (const panelName of ["真實任務", "四階參照", "證據項目", "四級規準", "逐項編修"]) {
+    await courseWorkspace(page)
+      .getByRole("tab", { name: panelName, exact: true })
+      .waitFor();
   }
   await reviseCard({
     trigger: courseWorkspace(page)
@@ -766,15 +790,32 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       .locator("xpath=ancestor::article[1]")
       .getByRole("button", { name: "AI 修改這張卡" }),
     dialogName: "修改真實總結任務",
-    instruction: "讓任務更符合一般高中現有設備，並保留完整 Q1–Q4。",
+    instruction: "讓任務更符合一般高中現有設備，並保留完整四階參照。",
     expectedText: revisedPerformanceTask.product,
   });
   await courseWorkspace(page)
-    .getByText("課前 Q1–Q4", { exact: true })
+    .getByRole("tab", { name: "四階參照", exact: true })
+    .click();
+  await courseWorkspace(page)
+    .getByText("診斷性四階參照", { exact: true })
     .first()
     .waitFor();
-  await page
-    .getByText("逐項編修評量證據草稿", { exact: true })
+  if (
+    (await courseWorkspace(page)
+      .getByRole("tab", { name: "四階參照", exact: true })
+      .getAttribute("aria-selected")) !== "true"
+  ) {
+    throw new Error(`${name} 評量證據四階參照切換按鈕未呈現選取狀態`);
+  }
+  await courseWorkspace(page)
+    .getByRole("heading", { name: "建立完整評量證據" })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: `${outputDir}/evidence-switch-${name}.png`,
+    fullPage: false,
+  });
+  await courseWorkspace(page)
+    .getByRole("tab", { name: "逐項編修", exact: true })
     .click();
   await page
     .locator("label")
@@ -784,29 +825,30 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     .fill("提出可執行的校園氣候調適方案（教師修訂）。");
   await page
     .getByRole("button", {
-      name: "確認證據，前往課程敘述與課前評量",
+      name: "確認證據，前往課程敘述與診斷題組",
     })
     .click();
-  const assessmentSeedCard = courseWorkspace(page)
-    .getByRole("heading", { name: "課程敘述與課前評量" })
-    .locator("xpath=ancestor::section[1]");
-  await assessmentSeedCard
-    .getByRole("button", { name: "AI 產生課程敘述與完整課前評量" })
+  await courseWorkspace(page)
+    .getByRole("tab", { name: /診斷題組/ })
     .click();
+  const assessmentSeedCard = courseWorkspace(page)
+    .getByRole("heading", { name: "課程敘述與診斷題組" })
+    .locator("xpath=ancestor::section[1]");
+  await nextCourseAction(page).click();
   await assessmentSeedCard
-    .getByText("課前評量已對齊", { exact: true })
+    .getByText("診斷題組已對齊", { exact: true })
     .waitFor();
   await assessmentSeedCard
     .getByText(courseAssessmentSeedResponse.pre.q1.stem, { exact: true })
     .waitFor();
   await assessmentSeedCard
-    .getByText("查看課前與預定課後 Q1–Q4 對齊", { exact: true })
+    .getByText("查看四階參照對齊同步狀態", { exact: true })
     .click();
-  for (const expected of [
-    "PRE.Q1｜辨識與問題直接相關的概念與證據。",
-    "POST.Q4｜整合概念、行動與遷移形成完整書面判斷。",
-  ]) {
-    await assessmentSeedCard.getByText(expected, { exact: true }).waitFor();
+  const alignmentSummary = assessmentSeedCard
+    .getByText("查看四階參照對齊同步狀態", { exact: true })
+    .locator("xpath=ancestor::details[1]");
+  for (const expected of ["診斷一", "遷移四", "已同步"]) {
+    await alignmentSummary.getByText(expected, { exact: false }).first().waitFor();
   }
   await assessmentSeedCard
     .getByRole("tab", { name: "發展", exact: true })
@@ -823,6 +865,9 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   await assessmentSeedCard
     .getByText(revisedDevelopingNarrative.classroomBehavior, { exact: true })
     .waitFor();
+  await courseWorkspace(page)
+    .getByRole("tab", { name: /節次與交付/ })
+    .click();
   await courseWorkspace(page).getByLabel("總節數").fill("3");
   await courseWorkspace(page)
     .getByRole("button", { name: "AI 產生單元節次藍圖" })
@@ -830,10 +875,13 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   await page
     .getByRole("heading", { name: "3 節完整教案與學習單提示詞已準備" })
     .waitFor();
+  await courseWorkspace(page)
+    .getByText("查看 3 節藍圖摘要", { exact: true })
+    .click();
   const blueprintRevisionButtonCount = await courseWorkspace(page)
     .getByRole("button", { name: "AI 修改這張卡" })
     .count();
-  if (blueprintRevisionButtonCount < 36) {
+  if (blueprintRevisionButtonCount < 4) {
     throw new Error(
       `${name} 節次藍圖卡片缺少獨立 AI 修改入口：${blueprintRevisionButtonCount}`,
     );
@@ -850,9 +898,6 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   await courseWorkspace(page).getByText(revisedUnitArc, { exact: true }).waitFor();
   await courseWorkspace(page)
     .getByRole("button", { name: "確認藍圖並更新 Canvas" })
-    .click();
-  await page
-    .getByText("查看 3 節藍圖摘要", { exact: true })
     .click();
   const lessonSummary = page
     .getByText("查看 3 節藍圖摘要", { exact: true })
@@ -933,14 +978,20 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
   }
 
   forceEvidenceFailure = true;
+  await courseWorkspace(page)
+    .getByRole("tab", { name: /評量證據/ })
+    .click();
   await page
     .getByRole("button", { name: "重新建立並校準評量證據" })
     .click();
   await page
-    .getByText("評量證據必須恰好包含課前與課後兩組 Q1–Q4 地圖。", {
+    .getByText("評量證據必須恰好包含診斷性與遷移性四階參照。", {
       exact: true,
     })
     .waitFor();
+  await courseWorkspace(page)
+    .getByRole("tab", { name: /節次與交付/ })
+    .click();
   await page
     .getByRole("heading", { name: "3 節完整教案與學習單提示詞已準備" })
     .waitFor();
@@ -996,14 +1047,14 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
     });
     await handoffDialog.waitFor();
     await handoffDialog
-      .getByText("課程敘述與前測", { exact: true })
+      .getByText("課程敘述與診斷題組", { exact: true })
       .waitFor();
     await handoffDialog
       .getByRole("button", { name: "確認帶入，前往評量設計" })
       .click();
     await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
     await page
-      .getByText("已唯讀帶入課程敘述語與完整課前評量；可直接分析課程與前測，產生課後評量。", {
+      .getByText("已唯讀帶入課程敘述語與診斷題組；可直接分析課程與診斷題組，產生遷移題組。", {
         exact: true,
       })
       .waitFor();
@@ -1028,7 +1079,7 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       'section[aria-label="評量設計工作區"]',
     );
     await assessmentWorkspace
-      .getByRole("tab", { name: "課前診斷", exact: true })
+      .getByRole("tab", { name: "診斷題組", exact: true })
       .click();
     await assessmentWorkspace
       .getByText(courseAssessmentSeedResponse.pre.q1.stem, { exact: true })
@@ -1038,7 +1089,7 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       .fill("第三節改用紙本資料，學生需要更多因果推論鷹架。");
     await assessmentWorkspace
       .getByRole("button", {
-        name: "分析課程與前測，產生課後評量",
+        name: "分析課程與診斷題組，產生遷移題組",
         exact: true,
       })
       .last()
@@ -1057,6 +1108,9 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       fullPage: false,
     });
   } else {
+    await courseWorkspace(page)
+      .getByRole("tab", { name: /校準/ })
+      .click();
     await curriculumCard
       .getByRole("button", { name: "取消選取 地Ia-Ⅴ-2" })
       .click();
@@ -1089,7 +1143,7 @@ async function verifyCourseIdeationUi(name, viewport, verifyHandoff) {
       throw new Error(`${name} 教師調整課綱後不應隱藏階段二與後續內容`);
     }
     await page
-      .getByText("請各選滿 2 項後重新校準。", {
+      .getByText("請各選滿 2 項後，於下方選取區之後重新校準。", {
         exact: false,
       })
       .waitFor();
@@ -1111,12 +1165,7 @@ async function verifyByokSettings() {
     waitUntil: "networkidle",
   });
 
-  await courseWorkspace(page)
-    .getByRole("button", { name: "AI 分析核心關鍵字" })
-    .click();
-  await courseWorkspace(page)
-    .getByText("請先設定 Gemini API Key。", { exact: true })
-    .waitFor();
+  await page.getByLabel("開啟共用 AI 設定").click();
   const dialog = page.getByRole("dialog", { name: "NPDL Studio AI 設定" });
   await dialog.waitFor();
   const modelSelect = dialog.getByLabel("模型");
@@ -1211,9 +1260,7 @@ async function verifyMalformedResponseBoundary() {
   await page.goto(baseUrl, {
     waitUntil: "networkidle",
   });
-  await courseWorkspace(page)
-    .getByRole("button", { name: "AI 分析核心關鍵字" })
-    .click();
+  await nextCourseAction(page).click();
   await page
     .getByText("AI 未產生完整的課程分析，請重試或切換模型。", {
       exact: true,
@@ -1242,7 +1289,8 @@ async function verifyCourseExamples() {
     waitUntil: "networkidle",
   });
 
-  const exampleSelect = courseWorkspace(page).getByLabel("載入測試範例");
+  const inputDrawer = await openCourseInputDrawer(page);
+  const exampleSelect = inputDrawer.getByLabel("載入測試範例");
   if ((await exampleSelect.locator("option").count()) !== 9) {
     throw new Error("課程發想工具未提供 8 組測試範例");
   }
@@ -1267,28 +1315,29 @@ async function verifyCourseExamples() {
   }
 
   await exampleSelect.selectOption("chemistry-reaction-rate");
-  if ((await courseWorkspace(page).getByLabel("年級").inputValue()) !== "高二") {
+  if ((await inputDrawer.getByLabel("年級").inputValue()) !== "高二") {
     throw new Error("化學測試範例未載入正確年級");
   }
-  if ((await courseWorkspace(page).getByLabel("學科").inputValue()) !== "化學") {
+  if ((await inputDrawer.getByLabel("學科").inputValue()) !== "化學") {
     throw new Error("化學測試範例未載入正確學科");
   }
-  if ((await courseWorkspace(page).getByLabel("單元名稱").inputValue()) !== "化學反應速率") {
+  if ((await inputDrawer.getByLabel("單元名稱").inputValue()) !== "化學反應速率") {
     throw new Error("化學測試範例未載入正確單元");
   }
-  await courseWorkspace(page).getByText("變因控制", { exact: true }).waitFor();
+  await inputDrawer.getByText("變因控制", { exact: true }).waitFor();
 
   await exampleSelect.selectOption("mathematics-food-waste-data");
-  if ((await courseWorkspace(page).getByLabel("學科").inputValue()) !== "數學") {
+  if ((await inputDrawer.getByLabel("學科").inputValue()) !== "數學") {
     throw new Error("數學測試範例未取代前一組學科");
   }
   if (
-    (await courseWorkspace(page).getByLabel("教學主題").inputValue()) !==
+    (await inputDrawer.getByLabel("教學主題").inputValue()) !==
     "以校園午餐剩食資料提出改善策略"
   ) {
     throw new Error("數學測試範例未載入正確教學主題");
   }
-  await courseWorkspace(page).getByText("抽樣偏差", { exact: true }).waitFor();
+  await inputDrawer.getByText("抽樣偏差", { exact: true }).waitFor();
+  await closeCourseInputDrawer(inputDrawer);
 
   const noHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -1351,7 +1400,8 @@ async function verifyLessonReferenceImport() {
     },
   );
   await page.goto(baseUrl, { waitUntil: "networkidle" });
-  const importCard = courseWorkspace(page)
+  const inputDrawer = await openCourseInputDrawer(page);
+  const importCard = inputDrawer
     .getByRole("heading", { name: "匯入既有教案" })
     .locator("xpath=ancestor::section[1]");
   await importCard.locator('input[type="file"]').setInputFiles({
@@ -1456,7 +1506,9 @@ async function verifyUnifiedWorkspaceNavigation() {
     name: "NPDL Studio 工作區",
   });
   await navigation.getByRole("button", { name: "課程設計" }).waitFor();
-  await courseWorkspace(page).getByLabel("單元名稱").fill("切換狀態保留測試");
+  let inputDrawer = await openCourseInputDrawer(page);
+  await inputDrawer.getByLabel("單元名稱").fill("切換狀態保留測試");
+  await closeCourseInputDrawer(inputDrawer);
 
   await navigation.getByRole("button", { name: "評量設計" }).click();
   await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
@@ -1477,12 +1529,14 @@ async function verifyUnifiedWorkspaceNavigation() {
 
   await navigation.getByRole("button", { name: "課程設計" }).click();
   await page.waitForURL(baseUrl);
+  inputDrawer = await openCourseInputDrawer(page);
   if (
-    (await courseWorkspace(page).getByLabel("單元名稱").inputValue()) !==
+    (await inputDrawer.getByLabel("單元名稱").inputValue()) !==
     "切換狀態保留測試"
   ) {
     throw new Error("工作區切換後課程端未提交狀態遺失");
   }
+  await closeCourseInputDrawer(inputDrawer);
   await page.goBack();
   await page.waitForURL(new URL("?workspace=assessment", baseUrl).toString());
   await page.goBack();
@@ -1576,7 +1630,7 @@ try {
     false,
   );
 console.log(
-  `合併工作區 UI smoke test 通過：根網址課程預設、分頁／瀏覽器歷史、舊網址轉址、狀態保留、顯式同頁評量交接、8 組多學科範例、教案附件選擇性帶入、完整 108 課綱搜尋多選、四階段單卡 AI 修改與套用、共用 BYOK 模型與金鑰、Puter 遷移、錯誤資訊邊界、完整評量證據、課程敘述與正式前測、單元節次藍圖、Gemini Canvas、課程與前測分析後的正式後測、完整評量證據包，以及桌面與手機版均正常。截圖：${outputDir}`,
+  `合併工作區 UI smoke test 通過：根網址課程預設、分頁／瀏覽器歷史、舊網址轉址、狀態保留、顯式同頁評量交接、8 組多學科範例、教案附件選擇性帶入、完整 108 課綱搜尋多選、四階段單卡 AI 修改與套用、共用 BYOK 模型與金鑰、Puter 遷移、錯誤資訊邊界、完整評量證據、課程敘述與診斷題組、單元節次藍圖、Gemini Canvas、課程與診斷題組分析後的遷移題組、完整評量證據包，以及桌面與手機版均正常。截圖：${outputDir}`,
 );
 } finally {
   await browser.close();

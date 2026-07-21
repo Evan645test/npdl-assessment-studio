@@ -3,11 +3,11 @@ export const t = {
   appSubtitle: "專業評量工作台",
   emptyTitle: "建立您的 NPDL 評量活動",
   emptyDesc:
-    "依左側步驟 1→3 完成設定，再點「生成診斷與遷移評量」。產出將分三個模組一屏呈現，您可逐段或逐題微調。",
+    "依左側步驟 1→3 完成設定，再點「生成診斷題組與遷移題組」。產出將分三個模組一屏呈現，您可逐段或逐題微調。",
   readyBadge: "已載入指標",
   readyHint: "以下是目前選取指標的四級評量標準；確認左側設定後即可生成評量內容。",
   customReadyHint: "您已輸入自訂指標內容；確認左側設定後即可生成評量內容。",
-  generate: "生成診斷與遷移評量",
+  generate: "生成診斷題組與遷移題組",
   generating: "正在生成評量內容…",
   settings: "系統設定",
   settingsSubtitle: "OpenAI、Gemini、Grok 與免費模型",

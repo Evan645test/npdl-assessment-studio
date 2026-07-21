@@ -15,6 +15,7 @@ const requiredFiles = [
   "assets/index-BpGjAnIq.js",
   "assets/index-CzLTat4i.css",
   "assets/pdf.worker.min.mjs",
+  "deploy-config.json",
 ];
 
 await Promise.all(
@@ -29,6 +30,7 @@ const [
   stablePuterChunk,
   oldPuterChunk,
   currentPuterChunk,
+  deployConfig,
 ] = await Promise.all([
   readFile(path.join(distDir, "index.html"), "utf8"),
   readFile(path.join(distDir, "course-ideation/index.html"), "utf8"),
@@ -37,6 +39,7 @@ const [
   readFile(path.join(distDir, "assets/chunks/index.js"), "utf8"),
   readFile(path.join(distDir, "assets/index-B2pYcf0b.js"), "utf8"),
   readFile(path.join(distDir, "assets/index-BpGjAnIq.js"), "utf8"),
+  readFile(path.join(distDir, "deploy-config.json"), "utf8"),
 ]);
 
 const checks = [
@@ -73,7 +76,7 @@ const checks = [
     "合併 App 缺少階段一課程發想介面",
   ],
   [
-    app.includes("6Cs 對齊與進程導航員"),
+    app.includes("6Cs 子向度推薦"),
     "合併 App 缺少階段二 6Cs 對齊介面",
   ],
   [
@@ -110,6 +113,10 @@ const checks = [
   ],
   [oldPuterChunk.includes('from "./chunks/index.js"'), "舊版 Puter chunk 相容入口失效"],
   [currentPuterChunk.includes('from "./chunks/index.js"'), "目前 Puter chunk 相容入口失效"],
+  [
+    deployConfig.includes('"googleOAuthClientId"'),
+    "deploy-config.json 缺少 googleOAuthClientId 欄位",
+  ],
 ];
 
 for (const [passed, message] of checks) {

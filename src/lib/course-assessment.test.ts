@@ -9,6 +9,8 @@ import {
   parseCourseAssessmentSeed,
   renderCourseAssessmentSeedMarkdown,
 } from "@/lib/course-assessment";
+import { renderAssessmentModuleMarkdown } from "@/lib/assessment-document";
+import { renderDiagnosticTeacherGuideMarkdown } from "@/lib/diagnostic-export-documents";
 import {
   TEST_ASSESSMENT_DOCUMENT,
   TEST_FORM,
@@ -155,6 +157,28 @@ describe("course assessment seed", () => {
     expect(
       renderCourseAssessmentSeedMarkdown(seed, TEST_FORM),
     ).toContain("## 課前：思維診斷");
+    const preContent = renderAssessmentModuleMarkdown(seed.pre, "pre", TEST_FORM);
+    expect(
+      renderDiagnosticTeacherGuideMarkdown(seed, TEST_FORM, {
+        indicatorName: "批判性思考",
+        unitName: "測試單元",
+        preContent,
+      }),
+    ).toContain("# 診斷指南（教師用）");
+    expect(
+      renderDiagnosticTeacherGuideMarkdown(seed, TEST_FORM, {
+        indicatorName: "批判性思考",
+        unitName: "測試單元",
+        preContent,
+      }),
+    ).toContain("Google Form");
+    expect(
+      renderDiagnosticTeacherGuideMarkdown(seed, TEST_FORM, {
+        indicatorName: "批判性思考",
+        unitName: "測試單元",
+        preContent,
+      }),
+    ).toContain("診斷一");
     expect(
       assembleAssessmentDocument(seed, TEST_ASSESSMENT_DOCUMENT.post).pre,
     ).toEqual(TEST_ASSESSMENT_DOCUMENT.pre);
@@ -182,7 +206,7 @@ describe("course assessment seed", () => {
       form: TEST_FORM,
       implementationNotes: "第三節改用紙本資料。",
     });
-    expect(evidencePackage).toContain("## Q1–Q4 對齊表");
+    expect(evidencePackage).toContain("## 四階參照對齊表");
     expect(evidencePackage).toContain("## NPDL 子向度官方四級進程");
     expect(evidencePackage).toContain("第三節改用紙本資料");
   });

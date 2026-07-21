@@ -509,7 +509,7 @@ export function parseEvidencePlan(
     desiredResults.successCriteria.map((criterion) => criterion.id),
   );
   if (!Array.isArray(parsed.questionMaps) || parsed.questionMaps.length !== 2) {
-    responseError("評量證據必須恰好包含課前與課後兩組 Q1–Q4 地圖。");
+    responseError("評量證據必須恰好包含診斷性與遷移性四階參照。");
   }
   const questionMaps: EvidenceQuestionMap[] = parsed.questionMaps.map(
     (item, mapIndex) => {
@@ -522,7 +522,7 @@ export function parseEvidencePlan(
         responseError(`questionMaps[${mapIndex}].phase 不合法。`);
       }
       if (!Array.isArray(record.questions) || record.questions.length !== 4) {
-        responseError(`${phase === "pre" ? "課前" : "課後"}必須完整規劃 Q1–Q4。`);
+        responseError(`${phase === "pre" ? "診斷性" : "遷移性"}四階參照必須完整規劃四個階段。`);
       }
       const questions = record.questions.map((question, questionIndex) => {
         const questionRecord = requiredRecord(
@@ -539,7 +539,7 @@ export function parseEvidencePlan(
           `questionMaps[${mapIndex}].questions[${questionIndex}].focus`,
         );
         if (id !== expectedId || focus !== QUESTION_FOCUS_BY_ID[expectedId]) {
-          responseError(`${phase === "pre" ? "課前" : "課後"} Q1–Q4 的順序或能力焦點不合法。`);
+          responseError(`${phase === "pre" ? "診斷性" : "遷移性"}四階參照的順序或能力焦點不合法。`);
         }
         const criterionIds = requiredStringArray(
           questionRecord.criterionIds,
@@ -584,7 +584,7 @@ export function parseEvidencePlan(
     questionMaps[0].phase !== "pre" ||
     questionMaps[1].phase !== "post"
   ) {
-    responseError("Q1–Q4 地圖必須依序為課前與課後。");
+    responseError("四階參照地圖必須依序為診斷性與遷移性。");
   }
   const performance = requiredRecord(parsed.performanceTask, "performanceTask");
   const performanceCriterionIds = requiredStringArray(
@@ -671,8 +671,8 @@ export function parseEvidencePlan(
     if (!/Q1/i.test(joined) || !/Q4/i.test(joined)) {
       responseError(
         type === "diagnostic"
-          ? "課前診斷證據必須明確包含 Q1–Q4。"
-          : "課後遷移證據必須明確包含 Q1–Q4。",
+          ? "診斷性四階參照必須明確包含四個階段。"
+          : "遷移性四階參照必須明確包含四個階段。",
       );
     }
   }
@@ -1128,10 +1128,10 @@ export function parseUnitBlueprint(
   const evidenceTypesFor = (lesson: UnitLessonBlueprint) =>
     lesson.evidenceItemIds.map((id) => evidenceById.get(id)?.type);
   if (!evidenceTypesFor(lessons[0]).includes("diagnostic")) {
-    responseError("第一節必須連結課前診斷證據。");
+    responseError("第一節必須連結診斷性四階參照。");
   }
   if (!evidenceTypesFor(lessons[lessons.length - 1]).includes("transfer")) {
-    responseError("最後一節必須連結課後遷移證據。");
+    responseError("最後一節必須連結遷移性四階參照。");
   }
   if (
     !lessons

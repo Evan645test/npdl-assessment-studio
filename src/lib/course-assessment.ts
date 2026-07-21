@@ -113,7 +113,7 @@ export function buildAssessmentQuestionAlignments(
     const map = evidencePlan.questionMaps.find((item) => item.phase === phase);
     if (!map || map.questions.length !== 4) {
       throw new Error(
-        `${phase === "pre" ? "課前" : "課後"} Q1–Q4 證據地圖不完整。`,
+        `${phase === "pre" ? "診斷性" : "遷移性"}四階參照不完整。`,
       );
     }
     const expectedIds = ["Q1", "Q2", "Q3", "Q4"] as const;
@@ -151,7 +151,7 @@ function requireSeedPatch(
     COURSE_ASSESSMENT_SEED_TARGETS,
   ) as AssessmentPatch;
   if (!patch.narrative || !patch.pre) {
-    throw new Error("AI 回應缺少課程敘述語或完整課前題組。");
+    throw new Error("AI 回應缺少課程敘述語或診斷題組。");
   }
   const pre = patch.pre as Partial<AssessmentModuleDocument>;
   if (
@@ -263,7 +263,7 @@ export function validateCourseAssessmentSeed(
     errors.push("課程評量種子版本不支援。");
   }
   if (seed.sourceFingerprint !== sourceFingerprint) {
-    errors.push("學習終點或評量證據已變更，課前評量需要重新產生。");
+    errors.push("學習終點或評量證據已變更，診斷題組需要重新產生。");
   }
   for (const [level, content] of Object.entries(seed.narrative)) {
     if (
@@ -308,13 +308,18 @@ export function validateCourseAssessmentSeed(
       actual.length !== expected.length ||
       expected.some((key) => !actual.includes(key))
     ) {
-      errors.push("課前／課後 Q1–Q4 對齊映射不完整。");
+      errors.push("診斷／遷移四階參照對齊映射不完整。");
     }
   } catch {
-    errors.push("課前／課後 Q1–Q4 對齊映射無法驗證。");
+    errors.push("診斷／遷移四階參照對齊映射無法驗證。");
   }
   return errors;
 }
+
+export {
+  renderDiagnosticQuestionsMarkdown,
+  renderDiagnosticTeacherGuideMarkdown,
+} from "@/lib/diagnostic-export-documents";
 
 export function renderCourseAssessmentSeedMarkdown(
   seed: CourseAssessmentSeedV1,
@@ -427,7 +432,7 @@ export function buildAssessmentEvidencePackageMarkdown(input: {
         ])
       : "- 尚未建立",
     "",
-    "## Q1–Q4 對齊表",
+    "## 四階參照對齊表",
     "",
     "### 課前",
     mappingsMarkdown(context.courseAssessmentSeed?.preMappings ?? []),

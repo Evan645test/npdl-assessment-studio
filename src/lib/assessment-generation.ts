@@ -228,7 +228,7 @@ export async function generatePostAssessment(
 ): Promise<AssessmentGenerationResult> {
   const seed = input.designContext.courseAssessmentSeed;
   if (!seed) {
-    throw new Error("缺少課程端產生的課程敘述語與課前評量。");
+    throw new Error("缺少課程端產生的課程敘述語與診斷題組。");
   }
   if (
     !isCourseAssessmentSeedCurrent(
@@ -238,7 +238,7 @@ export async function generatePostAssessment(
     )
   ) {
     throw new Error(
-      "課程端學習終點或評量證據已更新，請重新產生並帶入最新的課前評量。",
+      "課程端學習終點或評量證據已更新，請重新產生並帶入最新的診斷題組。",
     );
   }
   stage(input.onProgress, "connecting", 0);

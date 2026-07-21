@@ -366,7 +366,7 @@ describe("learning design project", () => {
         CONSTRAINTS,
         "C2-P1",
       ),
-    ).toThrow("第一節必須連結課前診斷證據");
+    ).toThrow("第一節必須連結診斷性四階參照");
   });
 
   it("enforces the controlled Q1–Q4 map and unique evidence IDs", () => {
