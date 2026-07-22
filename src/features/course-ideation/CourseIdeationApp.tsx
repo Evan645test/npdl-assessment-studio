@@ -4209,6 +4209,11 @@ export default function CourseIdeationApp({
         lastCopiedAt: Date.now(),
       });
       setCopyNotice(result.message);
+      if (!result.canvasOpened) {
+        setError(
+          "瀏覽器可能封鎖了彈出視窗。請允許本站彈出視窗後再按一次，或手動開啟 https://gemini.google.com/canvas 後貼上。",
+        );
+      }
     } catch (caught) {
       setError(toUserErrorMessage(caught));
       setCopyNotice(null);
