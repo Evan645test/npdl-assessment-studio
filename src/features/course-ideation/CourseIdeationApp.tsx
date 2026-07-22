@@ -1318,7 +1318,7 @@ function promptPreviewKindLabel(promptPackage: LessonPromptPackage): {
     return {
       title: "學生學習單提示詞預覽",
       subtitle:
-        "此提示詞只產出全部節次學生學習單與教師判讀指引；不含教師備課教案。可直接貼入 Gemini Canvas。",
+        "此提示詞產出可直接列印的全部節次學生學習單（含完整表格標題／表頭與作答欄）與教師判讀指引；不含教師備課教案。",
       taskLabel: "學習單任務資料",
     };
   }
@@ -8176,7 +8176,7 @@ export default function CourseIdeationApp({
                             </h3>
                             <p className="mt-1 text-xs font-bold leading-6 text-sky-800">
                               {unitBlueprint
-                                ? `${unitBlueprint.lessons.length} 節學習單與教師判讀指引提示詞（不含教案）`
+                                ? `${unitBlueprint.lessons.length} 節可直接列印的學習單＋教師判讀指引（不含教案）`
                                 : "確認節次藍圖後開放學習單提示詞。"}
                             </p>
                           </div>

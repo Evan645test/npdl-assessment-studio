@@ -564,6 +564,11 @@ describe("learning design project", () => {
     expect(worksheetPromptPackage.lessonId).toBe("unit-worksheets");
     expect(worksheetPromptPackage.fullPrompt).toContain("全部節次學習單任務資料");
     expect(worksheetPromptPackage.fullPrompt).toContain("不要產生教案流程表");
+    expect(worksheetPromptPackage.fullPrompt).toContain("可直接列印");
+    expect(worksheetPromptPackage.fullPrompt).toContain("完整表頭");
+    expect(worksheetPromptPackage.fullPrompt).toContain("班級");
+    expect(worksheetPromptPackage.fullPrompt).toContain("座號");
+    expect(worksheetPromptPackage.fullPrompt).toContain("printReadyLayout");
     expect(worksheetPromptPackage.fullPrompt).not.toContain("完整單元逐節教案");
     expect(worksheetPromptPackage.fullPrompt).toContain(
       '"heading": "A. 知識基礎"',
