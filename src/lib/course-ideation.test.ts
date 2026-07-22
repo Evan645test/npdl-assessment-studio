@@ -157,7 +157,7 @@ describe("course ideation contracts", () => {
     ).toEqual(["極端氣候", "校園熱島", "數據證據", "小組倡議", "利害關係人"]);
   });
 
-  it("requires five curriculum recommendations and exactly two adopted entries", () => {
+  it("allows optional curriculum selection and recommendation counts", () => {
     const autoSchema = getCourseAlignmentSchema("ai_auto");
     const teacherSchema = getCourseAlignmentSchema("teacher_edited");
     const autoCurriculum = (
@@ -174,27 +174,27 @@ describe("course ideation contracts", () => {
     ).properties as Record<string, Record<string, unknown>>;
 
     expect(autoCurriculum.performanceIds).toMatchObject({
-      minItems: 2,
+      minItems: 0,
       maxItems: 2,
     });
     expect(autoCurriculum.contentIds).toMatchObject({
-      minItems: 2,
+      minItems: 0,
       maxItems: 2,
     });
     expect(teacherCurriculum.performanceIds).toMatchObject({
-      minItems: 2,
+      minItems: 0,
       maxItems: 2,
     });
     expect(teacherCurriculum.contentIds).toMatchObject({
-      minItems: 2,
+      minItems: 0,
       maxItems: 2,
     });
     expect(recommendation.performanceIds).toMatchObject({
-      minItems: 5,
+      minItems: 0,
       maxItems: 5,
     });
     expect(recommendation.contentIds).toMatchObject({
-      minItems: 5,
+      minItems: 0,
       maxItems: 5,
     });
   });
@@ -244,10 +244,10 @@ describe("course ideation contracts", () => {
       '"id": "5730-7406-content-ia-v-2"',
     );
     expect(alignmentPrompt.stable).toContain(
-      "各推薦恰好 5 項學習表現與 5 項學習內容",
+      "官方 108 課綱為可選",
     );
     expect(alignmentPrompt.dynamic).toContain(
-      "各輸出恰好 5 個互不重複",
+      "0–5 個互不重複的受控 ID",
     );
 
     const chemistryPrompt = buildKeywordAnalysisPrompt({
@@ -462,13 +462,17 @@ ${JSON.stringify({
       contentIds: ["5730-7406-content-ia-v-2"],
       rationale: ALIGNMENT.curriculumSelection.rationale,
     };
-    expect(() =>
+    expect(
       parseCourseAlignment(
         JSON.stringify(insufficientAutoSelection),
         "gpt-4.1",
         CURRICULUM_CANDIDATES,
-      ),
-    ).toThrow("數量不合法");
+      ).curriculumSelection,
+    ).toMatchObject({
+      performanceIds: ["5730-7406-performance-1c-v-1"],
+      contentIds: ["5730-7406-content-ia-v-2"],
+      mode: "ai_auto",
+    });
     expect(
       parseCourseAlignment(
         JSON.stringify(insufficientAutoSelection),
@@ -480,6 +484,29 @@ ${JSON.stringify({
       performanceIds: ["5730-7406-performance-1c-v-1"],
       contentIds: ["5730-7406-content-ia-v-2"],
       mode: "teacher_edited",
+    });
+
+    const skippedCurriculum = JSON.parse(raw) as Record<string, unknown>;
+    skippedCurriculum.curriculumSelection = {
+      performanceIds: [],
+      contentIds: [],
+      rationale: "教師略過官方 108 選取。",
+    };
+    skippedCurriculum.curriculumRecommendation = {
+      performanceIds: [],
+      contentIds: [],
+      rationale: "教師略過官方 108 選取。",
+    };
+    expect(
+      parseCourseAlignment(
+        JSON.stringify(skippedCurriculum),
+        "gpt-4.1",
+        { performances: [], contents: [] },
+      ).curriculumSelection,
+    ).toMatchObject({
+      performanceIds: [],
+      contentIds: [],
+      mode: "ai_auto",
     });
   });
 

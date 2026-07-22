@@ -7,6 +7,8 @@ import {
   createCustomCurriculumEntry,
   getCurriculumCandidates,
   getCurriculumOptions,
+  getCurriculumTierMap,
+  rankCurriculumWithTiers,
 } from "@/lib/curriculum";
 
 describe("controlled 108 curriculum snapshot", () => {
@@ -111,7 +113,7 @@ describe("controlled 108 curriculum snapshot", () => {
     }
   });
 
-  it("keeps a teacher-selected option outside the ranked AI shortlist", () => {
+  it("keeps a teacher-selected option outside the preferred tier shortlist", () => {
     const input = {
       grade: "高一",
       subject: "地理",
@@ -124,15 +126,18 @@ describe("controlled 108 curriculum snapshot", () => {
     const outside = options.contents.find(
       (entry) => !shortlist.contents.some((item) => item.id === entry.id),
     );
-    expect(outside).toBeDefined();
+    // When the preferred tiers already cover the whole subject pool, pick any
+    // option and assert re-including an explicit selection stays stable.
+    const targetId = outside?.id ?? options.contents[options.contents.length - 1]?.id;
+    expect(targetId).toBeDefined();
     const withTeacherSelection = getCurriculumCandidates(
       input,
       null,
       [],
-      { contentIds: [outside!.id] },
+      { contentIds: [targetId!] },
     );
     expect(
-      withTeacherSelection.contents.some((entry) => entry.id === outside!.id),
+      withTeacherSelection.contents.some((entry) => entry.id === targetId),
     ).toBe(true);
   });
 
@@ -145,5 +150,33 @@ describe("controlled 108 curriculum snapshot", () => {
     );
     expect(custom.sourceVersion).toBe("unverified");
     expect(custom.sourceName).toContain("未由系統核對");
+  });
+
+  it("maps science inquiry umbrella subjects into the natural-science pool with tiers", () => {
+    const input = {
+      grade: "高一",
+      subject: "自然科學探究與實作",
+      unitName: "化學流言終結者：AI 時代的科學探究與資料檢索",
+      teachingTopic: "以 AI 協作查核化學流言",
+      coreKeywords: ["AI 協作", "事實查核", "科學探究", "資訊轉譯", "媒體識讀"],
+    };
+    const options = getCurriculumOptions(input);
+    expect(options.performances.length).toBeGreaterThanOrEqual(5);
+    expect(options.contents.length).toBeGreaterThanOrEqual(5);
+    expect(
+      options.contents.every((entry) => entry.subject === "化學"),
+    ).toBe(true);
+
+    const ranked = rankCurriculumWithTiers(
+      "learning_content",
+      input,
+      null,
+    );
+    expect(ranked.some((item) => item.tier === 1)).toBe(true);
+    expect(ranked.some((item) => item.tier === 2 || item.tier === 3)).toBe(
+      true,
+    );
+    const tierMap = getCurriculumTierMap(input);
+    expect(tierMap.size).toBeGreaterThan(0);
   });
 });

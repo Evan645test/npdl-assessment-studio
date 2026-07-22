@@ -137,13 +137,13 @@ export const COURSE_ALIGNMENT_SCHEMA: Record<string, unknown> = {
       properties: {
         performanceIds: {
           type: "array",
-          minItems: 2,
+          minItems: 0,
           maxItems: 2,
           items: { type: "string" },
         },
         contentIds: {
           type: "array",
-          minItems: 2,
+          minItems: 0,
           maxItems: 2,
           items: { type: "string" },
         },
@@ -157,13 +157,13 @@ export const COURSE_ALIGNMENT_SCHEMA: Record<string, unknown> = {
       properties: {
         performanceIds: {
           type: "array",
-          minItems: 5,
+          minItems: 0,
           maxItems: 5,
           items: { type: "string" },
         },
         contentIds: {
           type: "array",
-          minItems: 5,
+          minItems: 0,
           maxItems: 5,
           items: { type: "string" },
         },
@@ -258,47 +258,11 @@ export const COURSE_ALIGNMENT_SCHEMA: Record<string, unknown> = {
 };
 
 export function getCourseAlignmentSchema(
-  mode: CurriculumSelection["mode"],
+  _mode: CurriculumSelection["mode"] = "ai_auto",
 ): Record<string, unknown> {
-  if (mode === "ai_auto") return COURSE_ALIGNMENT_SCHEMA;
-
-  const rootProperties = COURSE_ALIGNMENT_SCHEMA.properties as Record<
-    string,
-    unknown
-  >;
-  const curriculumSelection = rootProperties.curriculumSelection as Record<
-    string,
-    unknown
-  >;
-  const curriculumProperties = curriculumSelection.properties as Record<
-    string,
-    unknown
-  >;
-
-  return {
-    ...COURSE_ALIGNMENT_SCHEMA,
-    properties: {
-      ...rootProperties,
-      curriculumSelection: {
-        ...curriculumSelection,
-        properties: {
-          ...curriculumProperties,
-          performanceIds: {
-            type: "array",
-            minItems: 2,
-            maxItems: 2,
-            items: { type: "string" },
-          },
-          contentIds: {
-            type: "array",
-            minItems: 2,
-            maxItems: 2,
-            items: { type: "string" },
-          },
-        },
-      },
-    },
-  };
+  // Official 108 selection is optional (0–2 each). Recommendation is optional
+  // (0–5 each) so calibration can proceed without matching curriculum entries.
+  return COURSE_ALIGNMENT_SCHEMA;
 }
 
 function uniqueStrings(values: string[], maximum: number): string[] {
@@ -494,14 +458,14 @@ function parseCurriculumSelection(
   const performanceIds = requiredIdArray(
     record.performanceIds,
     "curriculumSelection.performanceIds",
-    mode === "ai_auto" ? 2 : 1,
+    0,
     2,
   );
   const contentIds = requiredIdArray(
     record.contentIds,
     "curriculumSelection.contentIds",
-    mode === "ai_auto" ? 2 : 1,
-    mode === "ai_auto" ? 2 : 3,
+    0,
+    2,
   );
   const validateIds = (
     ids: string[],
@@ -514,16 +478,18 @@ function parseCurriculumSelection(
       }
     }
   };
-  validateIds(
-    performanceIds,
-    new Set(candidates.performances.map((entry) => entry.id)),
-    "curriculumSelection.performanceIds",
-  );
-  validateIds(
-    contentIds,
-    new Set(candidates.contents.map((entry) => entry.id)),
-    "curriculumSelection.contentIds",
-  );
+  if (performanceIds.length > 0 || contentIds.length > 0) {
+    validateIds(
+      performanceIds,
+      new Set(candidates.performances.map((entry) => entry.id)),
+      "curriculumSelection.performanceIds",
+    );
+    validateIds(
+      contentIds,
+      new Set(candidates.contents.map((entry) => entry.id)),
+      "curriculumSelection.contentIds",
+    );
+  }
   return {
     performanceIds,
     contentIds,
@@ -543,17 +509,19 @@ function parseCurriculumRecommendation(
     responseError("AI 回應缺少 curriculumRecommendation。");
   }
   const record = value as Record<string, unknown>;
+  const maxPerformance = Math.min(5, candidates.performances.length);
+  const maxContent = Math.min(5, candidates.contents.length);
   const performanceIds = requiredIdArray(
     record.performanceIds,
     "curriculumRecommendation.performanceIds",
-    5,
-    5,
+    0,
+    maxPerformance > 0 ? maxPerformance : 0,
   );
   const contentIds = requiredIdArray(
     record.contentIds,
     "curriculumRecommendation.contentIds",
-    5,
-    5,
+    0,
+    maxContent > 0 ? maxContent : 0,
   );
   const validateIds = (
     ids: string[],
@@ -566,16 +534,20 @@ function parseCurriculumRecommendation(
       }
     }
   };
-  validateIds(
-    performanceIds,
-    new Set(candidates.performances.map((entry) => entry.id)),
-    "curriculumRecommendation.performanceIds",
-  );
-  validateIds(
-    contentIds,
-    new Set(candidates.contents.map((entry) => entry.id)),
-    "curriculumRecommendation.contentIds",
-  );
+  if (performanceIds.length > 0) {
+    validateIds(
+      performanceIds,
+      new Set(candidates.performances.map((entry) => entry.id)),
+      "curriculumRecommendation.performanceIds",
+    );
+  }
+  if (contentIds.length > 0) {
+    validateIds(
+      contentIds,
+      new Set(candidates.contents.map((entry) => entry.id)),
+      "curriculumRecommendation.contentIds",
+    );
+  }
   return {
     performanceIds,
     contentIds,
@@ -701,14 +673,16 @@ export function parseCourseAlignment(
   );
   if (
     selectionMode === "ai_auto" &&
-    (!curriculumSelection.performanceIds.every((id) =>
-      curriculumRecommendation.performanceIds.includes(id),
-    ) ||
-      !curriculumSelection.contentIds.every((id) =>
-        curriculumRecommendation.contentIds.includes(id),
-      ))
+    ((curriculumRecommendation.performanceIds.length > 0 &&
+      !curriculumSelection.performanceIds.every((id) =>
+        curriculumRecommendation.performanceIds.includes(id),
+      )) ||
+      (curriculumRecommendation.contentIds.length > 0 &&
+        !curriculumSelection.contentIds.every((id) =>
+          curriculumRecommendation.contentIds.includes(id),
+        )))
   ) {
-    responseError("AI 自動採用的課綱 ID 必須包含在 5 項推薦清單中。");
+    responseError("AI 自動採用的課綱 ID 必須包含在推薦清單中。");
   }
   if (
     !parsed.backwardDesign ||
@@ -889,10 +863,12 @@ export function buildCourseAlignmentPrompt(
   return {
     stable: `你是精通 NPDL（New Pedagogies for Deep Learning）的資深課程設計顧問。
 請從提供的受控 6Cs 子向度目錄中推薦 1–2 個最適合的子向度，不得建立不存在的 ID。
-首次自動校準時，必須從提供的受控 108 課綱候選中各推薦恰好 5 項學習表現與 5 項學習內容，並從每組推薦中採用最相關的 2 項，再進行 6Cs 對齊。教師已調整課綱選擇時，則必須原樣保留教師選擇。只能輸出候選目錄內的完整 ID，不得建立、改寫或猜測 ID。
+官方 108 課綱為可選：若候選目錄為空，或教師略過官方課綱，curriculumRecommendation 與 curriculumSelection 的 ID 陣列皆輸出空陣列，並在 rationale 註明「教師略過官方 108 選取」或「目前無可對應官方課綱」，仍須完成 6Cs 對齊與學習成果。
+若候選目錄有項目：可依建議梯隊（建議優先 → 同科類似概念 → 同科其他）各推薦最多 5 項學習表現與學習內容；同科類似概念亦可納入推薦。curriculumSelection 每邊可採用 0–2 項（可不選）。教師已調整課綱選擇時，必須原樣保留教師選擇（可為空）。只能輸出候選目錄內的完整 ID，不得建立、改寫或猜測 ID。
 推薦必須依據學生在任務中要執行的具體認知或實作行為及其可觀察證據；禁止只因主題名稱或關鍵字相似就配對素養。
 學習成果必須形成三層遞進：知識基礎 → 素養子向度 → NPDL 學習設計四要素整合實踐。
 三層不是三個平行活動：後一層必須運用前一層，並逐步提高學生的責任、獨立性與向真實或新情境遷移的程度。
+若未選官方課綱，知識基礎改以單元、主題與關鍵字為錨點，不得虛構課綱條文。
 「四要素」不是 Engage/Explore/Explain/Elaborate 教學循環，也不得稱為 4E。
 ${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
 
@@ -960,7 +936,7 @@ ${JSON.stringify(
 
 ${preferredSelection?.mode === "teacher_edited"
   ? `【教師已調整的課綱選擇】
-必須原樣輸出下列 ID，不得替換：
+必須原樣輸出下列 ID（可為空陣列），不得替換：
 ${JSON.stringify(
   {
     performanceIds: preferredSelection.performanceIds,
@@ -969,7 +945,9 @@ ${JSON.stringify(
   null,
   2,
 )}`
-  : "【課綱採用方式】\n請依課程輸入與階段一分析，各自建議並採用恰好 2 項最相關的學習表現與 2 項最相關的學習內容。"}
+  : candidates.performances.length === 0 && candidates.contents.length === 0
+    ? "【課綱採用方式】\n目前沒有可用的官方 108 課綱候選。curriculumSelection 與 curriculumRecommendation 請輸出空陣列，rationale 說明略過官方課綱，並專注完成 6Cs 與學習成果。"
+    : "【課綱採用方式】\n官方 108 課綱可選。請依建議梯隊（建議優先 → 同科類似概念）排序推薦；每邊可採用 0–2 項最相關條目，亦可兩邊皆不選。"}
 
 ${preferredRecommendation
   ? `【原始 AI 課綱推薦】
@@ -983,17 +961,19 @@ ${JSON.stringify(
   null,
   2,
 )}`
-  : "【課綱推薦方式】\ncurriculumRecommendation 必須各輸出恰好 5 個互不重複的 learningPerformances ID 與 learningContents ID，並依相關性排序；curriculumSelection 的 2 個 ID 必須來自各自的 5 項推薦清單。"}
+  : candidates.performances.length === 0 && candidates.contents.length === 0
+    ? "【課綱推薦方式】\n無官方候選時，curriculumRecommendation 的 performanceIds 與 contentIds 必須為空陣列。"
+    : "【課綱推薦方式】\ncurriculumRecommendation 可各輸出 0–5 個互不重複的受控 ID，優先來自建議優先與同科類似概念梯隊並依相關性排序；若教師略過課綱則輸出空陣列。curriculumSelection 的 ID（若有）應來自推薦清單或為空。"}
 
 【可用 6Cs 子向度目錄】
 ${JSON.stringify(catalog, null, 2)}
 
 【輸出要求】
-1. curriculumRecommendation：學習表現與學習內容各推薦恰好 5 個受控 ID，依相關性排序；rationale 簡要說明整組推薦依據。
-2. curriculumSelection：${preferredSelection?.mode === "teacher_edited" ? "原樣輸出教師選擇的 learningPerformances ID 與 learningContents ID" : "從各自 5 項推薦中採用恰好 2 個 learningPerformances ID 與恰好 2 個 learningContents ID"}，rationale 說明所選課綱與單元、關鍵字及預期學生表現的關係。不得抄寫或改寫課綱原文。
+1. curriculumRecommendation：學習表現與學習內容各推薦 0–5 個受控 ID（可為空）；有候選時優先依梯隊與相關性排序；rationale 簡要說明推薦依據或略過原因。
+2. curriculumSelection：${preferredSelection?.mode === "teacher_edited" ? "原樣輸出教師選擇的 learningPerformances ID 與 learningContents ID（可為空）" : "每邊採用 0–2 個受控 ID（可不選）；若有採用則應來自推薦清單"}，rationale 說明所選課綱與單元的關係，或註明略過官方 108。不得抄寫或改寫課綱原文，也不得虛構課綱條文。
 3. backwardDesign：transferGoals 寫學生在離開本單元後能獨立遷移的行動；enduringUnderstandings 寫值得長期保留的關係或原理；essentialQuestions 寫可貫穿單元且不能只用單一事實回答的探究問題。
 4. recommendations：推薦 1–2 個子向度。每項理由必須完整連結「課程任務 → 學生具體認知或實作行為 → 可觀察證據」，不得只做名詞配對。
-5. learningOutcomes：三層各提供一項可觀察、可評量的成果 statement，並提供 evidence。知識基礎須以採用的課綱條目為錨點，另提供 2–4 項 successCriteria；素養子向度回答「學生運用知識能做什麼」；四要素整合實踐回答「學生如何在真實或新情境中整合行動並產出結果」。不得只使用「了解、認識、培養」等無法直接觀察的動詞。
+5. learningOutcomes：三層各提供一項可觀察、可評量的成果 statement，並提供 evidence。知識基礎若有採用課綱則以其為錨點，否則以單元／主題／關鍵字為錨點，另提供 2–4 項 successCriteria；素養子向度回答「學生運用知識能做什麼」；四要素整合實踐回答「學生如何在真實或新情境中整合行動並產出結果」。不得只使用「了解、認識、培養」等無法直接觀察的動詞。
 6. fourElements：四個要素各恰好一次，且共同支撐同一個整合實踐成果，不得生成四個互不相干的裝飾性活動。designMove 要說明教師如何安排該要素、如何與至少另一要素連動，以及如何逐步把學習責任交給學生；studentEvidence 要寫學生實際留下的作品、行動、互動或修訂證據。數位利用必須深化知識建構、協作、創造或分享，不可只列工具名稱，且須有紙本或離線替代路徑。
 7. evidenceTools：列出 2–5 個能帶入後續評量設計的工具或證據形式，必須可由一般高中教師在正常課時內蒐集與判讀，不得預設付費平台或一人一機。`,
   };

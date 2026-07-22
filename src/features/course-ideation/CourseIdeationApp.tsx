@@ -64,9 +64,12 @@ import {
 import {
   createCustomCurriculumEntry,
   CURRICULUM_SNAPSHOT_VERSION,
+  CURRICULUM_TIER_LABELS,
   getCurriculumCandidates,
   getCurriculumEntry,
   getCurriculumOptions,
+  getCurriculumTierMap,
+  type CurriculumTier,
 } from "@/lib/curriculum";
 import {
   COURSE_IDEATION_MODEL_OPTIONS,
@@ -560,12 +563,14 @@ function CurriculumOptionCard({
   entry,
   checked,
   recommended,
+  tier,
   disabled,
   onToggle,
 }: {
   entry: CurriculumEntry;
   checked: boolean;
   recommended: boolean;
+  tier?: CurriculumTier;
   disabled: boolean;
   onToggle: (id: string, checked: boolean) => void;
 }) {
@@ -594,6 +599,16 @@ function CurriculumOptionCard({
               AI 推薦
             </span>
           )}
+          {tier === 1 && (
+            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[9px] font-black text-sky-900">
+              {CURRICULUM_TIER_LABELS[1]}
+            </span>
+          )}
+          {tier === 2 && (
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[9px] font-black text-indigo-900">
+              {CURRICULUM_TIER_LABELS[2]}
+            </span>
+          )}
           {entry.sourceVersion === "unverified" && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black text-amber-900">
               教師自訂／未核對
@@ -615,6 +630,7 @@ function CurriculumMultiSelect({
   entries,
   selectedIds,
   recommendedIds,
+  tierById,
   maximum,
   onToggle,
 }: {
@@ -622,6 +638,7 @@ function CurriculumMultiSelect({
   entries: CurriculumEntry[];
   selectedIds: string[];
   recommendedIds: string[];
+  tierById: Map<string, CurriculumTier>;
   maximum: number;
   onToggle: (id: string, checked: boolean) => void;
 }) {
@@ -639,10 +656,33 @@ function CurriculumMultiSelect({
   const selectedEntries = selectedIds
     .map((id) => entries.find((entry) => entry.id === id))
     .filter((entry): entry is CurriculumEntry => Boolean(entry));
-  const otherEntries = filtered.filter((entry) => !recommended.has(entry.id));
+
+  const suggestionEntries = filtered
+    .filter((entry) => {
+      const tier = tierById.get(entry.id);
+      return tier === 1 || tier === 2;
+    })
+    .sort((left, right) => {
+      const leftTier = tierById.get(left.id) ?? 3;
+      const rightTier = tierById.get(right.id) ?? 3;
+      if (leftTier !== rightTier) return leftTier - rightTier;
+      return left.code.localeCompare(right.code, "zh-Hant", { numeric: true });
+    });
+
+  const displayRecommended =
+    recommendedEntries.length > 0
+      ? recommendedEntries
+      : suggestionEntries.slice(0, 12);
+
+  const displayRecommendedIds = new Set(displayRecommended.map((entry) => entry.id));
+  const otherEntries = filtered.filter((entry) => !displayRecommendedIds.has(entry.id));
   const groups = Array.from(
     otherEntries.reduce((map, entry) => {
-      const category = curriculumOptionCategory(entry);
+      const tier = tierById.get(entry.id);
+      const category =
+        tier === 3
+          ? { key: "tier-3", label: CURRICULUM_TIER_LABELS[3] }
+          : curriculumOptionCategory(entry);
       const current = map.get(category.key) ?? {
         label: category.label,
         entries: [] as CurriculumEntry[],
@@ -655,11 +695,18 @@ function CurriculumMultiSelect({
     .map(([key, group]) => ({
       key,
       ...group,
-      entries: group.entries.sort((left, right) =>
-        left.code.localeCompare(right.code, "zh-Hant", { numeric: true }),
-      ),
+      entries: group.entries.sort((left, right) => {
+        const leftTier = tierById.get(left.id) ?? 3;
+        const rightTier = tierById.get(right.id) ?? 3;
+        if (leftTier !== rightTier) return leftTier - rightTier;
+        return left.code.localeCompare(right.code, "zh-Hant", { numeric: true });
+      }),
     }))
-    .sort((left, right) => left.label.localeCompare(right.label, "zh-Hant"));
+    .sort((left, right) => {
+      if (left.key === "tier-3") return -1;
+      if (right.key === "tier-3") return 1;
+      return left.label.localeCompare(right.label, "zh-Hant");
+    });
 
   const renderOption = (entry: CurriculumEntry, isRecommended: boolean) => {
     const checked = selectedIds.includes(entry.id);
@@ -669,7 +716,8 @@ function CurriculumMultiSelect({
         key={entry.id}
         entry={entry}
         checked={checked}
-        recommended={isRecommended}
+        recommended={isRecommended && recommended.has(entry.id)}
+        tier={tierById.get(entry.id)}
         disabled={atLimit}
         onToggle={onToggle}
       />
@@ -681,7 +729,7 @@ function CurriculumMultiSelect({
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-black text-zinc-800">{title}</h3>
         <span className="text-[10px] font-black text-zinc-500">
-          已選 {selectedIds.length}/{maximum} · 受控清單 {entries.length} 項
+          已選 {selectedIds.length}/{maximum} · 受控清單 {entries.length} 項 · 可不選
         </span>
       </div>
       {selectedEntries.length > 0 && (
@@ -707,28 +755,32 @@ function CurriculumMultiSelect({
       )}
       <div
         className="mt-4 rounded-xl border-2 border-violet-200 bg-violet-50 p-3"
-        aria-label={`AI 推薦${title}`}
+        aria-label={`建議梯隊${title}`}
       >
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-xs font-black text-violet-950">
-              AI 推薦的{title}
+              {recommendedEntries.length > 0 ? `AI 推薦的${title}` : `建議梯隊${title}`}
             </p>
             <p className="mt-1 text-[10px] font-bold text-violet-700">
-              AI 提供 5 項推薦，請選擇最適合本單元的 2 項；推薦會保留供比較。
+              依「建議優先 → 同科類似概念」排序；可不選，或最多選 {maximum}{" "}
+              項。跨梯隊勾選亦可。
             </p>
           </div>
           <span className="shrink-0 rounded-full bg-violet-200 px-2.5 py-1 text-[10px] font-black text-violet-900">
-            {recommendedEntries.length}/5 項
+            {displayRecommended.length} 項
           </span>
         </div>
-        {recommendedEntries.length > 0 ? (
+        {displayRecommended.length > 0 ? (
           <div className="mt-3 grid gap-2">
-            {recommendedEntries.map((entry) => renderOption(entry, true))}
+            {displayRecommended.map((entry) =>
+              renderOption(entry, recommended.has(entry.id)),
+            )}
           </div>
         ) : (
           <div className="mt-3 rounded-lg border border-dashed border-violet-300 bg-white/70 p-3 text-xs font-bold leading-5 text-violet-800">
-            尚未產生 AI 推薦。請先點選頁面上方的「目前流程下一步」完成校準，這裡會固定顯示 5 項推薦供選擇。
+            目前此科目尚無可對應的官方 108 條目。可略過課綱直接按上方完成 6Cs
+            校準，或改選科目／加入教師自訂依據後再選。
           </div>
         )}
       </div>
@@ -737,7 +789,7 @@ function CurriculumMultiSelect({
           <span>
             其他可選{title}
             <span className="ml-2 text-[10px] text-zinc-500">
-              {otherEntries.length} 項 · 已分類
+              {otherEntries.length} 項 · 含同科其他
             </span>
           </span>
           <ChevronDown className="h-4 w-4" />
@@ -774,7 +826,7 @@ function CurriculumMultiSelect({
               <p className="rounded-lg bg-zinc-50 p-3 text-center text-xs font-bold text-zinc-500">
                 {normalizedSearch
                   ? "其他條目中找不到符合代碼、原文或科目的結果。"
-                  : "目前沒有推薦項目以外的其他條目。"}
+                  : "目前沒有建議梯隊以外的其他條目。"}
               </p>
             )}
           </div>
@@ -1735,14 +1787,6 @@ export default function CourseIdeationApp({
   const optionContentIds = new Set(
     curriculumOptions.contents.map((entry) => entry.id),
   );
-  const curriculumSelectionComplete =
-    curriculumSelection !== null &&
-    curriculumSelection.performanceIds.length === 2 &&
-    curriculumSelection.contentIds.length === 2 &&
-    curriculumSelection.performanceIds.every((id) =>
-      optionPerformanceIds.has(id),
-    ) &&
-    curriculumSelection.contentIds.every((id) => optionContentIds.has(id));
   const curriculumSelectionNeedsRecalibration =
     curriculumSelection?.mode === "teacher_edited" &&
     (!alignment ||
@@ -1754,13 +1798,13 @@ export default function CourseIdeationApp({
         curriculumSelection.contentIds,
         alignment.curriculumSelection.contentIds,
       ));
-  const curriculumCandidatesReady =
-    curriculumSelection?.mode === "teacher_edited" &&
-    curriculumRecommendation
-      ? curriculumCandidates.performances.length >= 1 &&
-        curriculumCandidates.contents.length >= 1
-      : curriculumCandidates.performances.length >= 5 &&
-        curriculumCandidates.contents.length >= 5;
+  const curriculumTierById = useMemo(
+    () => getCurriculumTierMap(input, analysis, customCurriculumEntries),
+    [analysis, customCurriculumEntries, input],
+  );
+  const hasOfficialCurriculumPool =
+    curriculumOptions.performances.length > 0 ||
+    curriculumOptions.contents.length > 0;
   const selectedIndicator = getIndicatorById(selectedIndicatorId);
   const unitConstraintErrors = useMemo(
     () => validateUnitConstraints(unitConstraints),
@@ -2538,21 +2582,18 @@ export default function CourseIdeationApp({
     }
     if (
       action === "align" &&
-      !curriculumCandidatesReady
+      curriculumSelection?.mode === "teacher_edited" &&
+      curriculumSelection.performanceIds.some((id) => !optionPerformanceIds.has(id))
     ) {
-      setError(
-        curriculumSelection?.mode === "teacher_edited"
-          ? "找不到可校準的課綱條目，請先加入教師自訂的學習表現與學習內容。"
-          : "AI 初次校準需要至少 5 項學習表現與 5 項學習內容候選；請確認年級、學科或加入教師自訂條目。",
-      );
+      setError("所選學習表現不在目前科目可用清單中，請清除後重選或略過課綱。");
       return;
     }
     if (
       action === "align" &&
       curriculumSelection?.mode === "teacher_edited" &&
-      !curriculumSelectionComplete
+      curriculumSelection.contentIds.some((id) => !optionContentIds.has(id))
     ) {
-      setError("請在學習表現與學習內容中各選擇 2 項後再重新校準。");
+      setError("所選學習內容不在目前科目可用清單中，請清除後重選或略過課綱。");
       return;
     }
     if (
@@ -2699,7 +2740,7 @@ export default function CourseIdeationApp({
             ))
         ) {
           throw new CourseIdeationResponseError(
-            "AI 未保留原始的 5 項課綱推薦清單。",
+            "AI 未保留原始的課綱推薦清單。",
           );
         }
         setAlignment(nextAlignment);
@@ -2990,21 +3031,18 @@ export default function CourseIdeationApp({
     }
     if (
       action === "align" &&
-      !curriculumCandidatesReady
+      curriculumSelection?.mode === "teacher_edited" &&
+      curriculumSelection.performanceIds.some((id) => !optionPerformanceIds.has(id))
     ) {
-      setError(
-        curriculumSelection?.mode === "teacher_edited"
-          ? "找不到可校準的課綱條目，請先加入教師自訂的學習表現與學習內容。"
-          : "AI 初次校準需要至少 5 項學習表現與 5 項學習內容候選；請確認年級、學科或加入教師自訂條目。",
-      );
+      setError("所選學習表現不在目前科目可用清單中，請清除後重選或略過課綱。");
       return;
     }
     if (
       action === "align" &&
       curriculumSelection?.mode === "teacher_edited" &&
-      !curriculumSelectionComplete
+      curriculumSelection.contentIds.some((id) => !optionContentIds.has(id))
     ) {
-      setError("請在學習表現與學習內容中各選擇 2 項後再重新校準。");
+      setError("所選學習內容不在目前科目可用清單中，請清除後重選或略過課綱。");
       return;
     }
     if (
@@ -3570,8 +3608,8 @@ export default function CourseIdeationApp({
   };
 
   const generateDesiredResults = () => {
-    if (!alignment || !selectedIndicatorId || !curriculumSelectionComplete) {
-      setError("請先選好 108 課綱學習表現、學習內容與 6Cs 子向度。");
+    if (!alignment || !selectedIndicatorId) {
+      setError("請先完成 6Cs 校準並選擇子向度。");
       setActiveDesignTab("alignment");
       setManualDesignTab(true);
       return;
@@ -4477,21 +4515,21 @@ export default function CourseIdeationApp({
                 label:
                   curriculumSelection?.mode === "teacher_edited"
                     ? "依教師調整重新校準"
-                    : "進行 108 課綱與 6Cs 校準",
-                description:
-                  "各選 2 項學習表現與學習內容後，讓 AI 產生 6Cs 主軸與學習成果。",
-                disabled:
-                  !curriculumCandidatesReady ||
-                  (curriculumSelection?.mode === "teacher_edited" &&
-                    !curriculumSelectionComplete),
+                    : hasOfficialCurriculumPool
+                      ? "進行 6Cs 校準（108 課綱可選）"
+                      : "進行 6Cs 校準（可不選 108 課綱）",
+                description: hasOfficialCurriculumPool
+                  ? "可依建議梯隊選 0–2 項課綱，或不選課綱；AI 會產生 6Cs 主軸與學習成果。"
+                  : "目前科目尚無官方課綱候選，可直接校準 6Cs；也可改選科目或加入自訂依據。",
+                disabled: false,
                 tone: "amber",
                 icon: Target,
                 onClick: () => requestAction("align"),
               }
-            : !curriculumSelectionComplete || !selectedIndicatorId
+            : !selectedIndicatorId
               ? {
-                  label: "選擇 108 課綱與 6Cs 子向度",
-                  description: "各確認 2 項學習表現與學習內容，並選擇一個 6Cs 子向度作為主軸。",
+                  label: "選擇 6Cs 子向度",
+                  description: "選擇一個 6Cs 子向度作為主軸；108 課綱可不選或稍後調整。",
                   tone: "amber",
                   icon: Target,
                   onClick: () => selectDesignTab("alignment"),
@@ -4499,7 +4537,7 @@ export default function CourseIdeationApp({
             : !desiredResults
               ? {
                   label: "生成學習終點",
-                  description: "依已選定的 108 課綱與 6Cs 子向度建立遷移目標、核心理解、核心問題與成功指標。",
+                  description: "依已選定的 6Cs 子向度（及可選的 108 課綱）建立遷移目標、核心理解、核心問題與成功指標。",
                   tone: "sky",
                   icon: Sparkles,
                   onClick: generateDesiredResults,
@@ -4603,7 +4641,7 @@ export default function CourseIdeationApp({
       id: "desired-results" as const,
       label: "學習終點",
       status: desiredResultsStatus,
-      disabled: !alignment || !curriculumSelectionComplete || !selectedIndicatorId,
+      disabled: !alignment || !selectedIndicatorId,
     },
     {
       id: "evidence" as const,
@@ -5334,7 +5372,9 @@ export default function CourseIdeationApp({
                     </p>
                     <h2 className="mt-1 text-xl font-black">108 課綱校準</h2>
                     <p className="mt-1 text-xs font-bold leading-5 text-zinc-500">
-                      已依年級與學科硬性篩選，再依單元、主題和關鍵字排序。AI 會各推薦 5 項學習表現與學習內容，教師各選 2 項；其他受控條目則依科目、必修／選修與課綱代碼類別分組，仍可搜尋並自由改選。
+                      官方 108 課綱為可選。已依年級與學科篩選，再依建議梯隊（建議優先 →
+                      同科類似概念 → 同科其他）排序；可不選，或最多各選 2
+                      項。完成上方 6Cs 校準後仍可調整課綱並重新校準。
                     </p>
                   </div>
                   <span className="w-fit rounded-full bg-[#eef4f0] px-3 py-1 text-[10px] font-black text-[#175247]">
@@ -5344,7 +5384,8 @@ export default function CourseIdeationApp({
 
                 {curriculumSelectionNeedsRecalibration && (
                   <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-950">
-                    教師已調整課綱選擇。階段二與後續內容會保留顯示，但目前仍是舊版本；請各選滿 2 項後，於下方選取區之後重新校準。
+                    教師已調整課綱選擇。階段二與後續內容會保留顯示，但目前仍是舊版本；可維持不選或最多各選
+                    2 項後，於下方重新校準。
                   </div>
                 )}
                 {curriculumSelection &&
@@ -5355,6 +5396,10 @@ export default function CourseIdeationApp({
                       {curriculumSelection.mode === "ai_auto"
                         ? "AI 自動採用"
                         : "教師調整後採用"}
+                      {curriculumSelection.performanceIds.length === 0 &&
+                      curriculumSelection.contentIds.length === 0
+                        ? "（未選官方 108 課綱）"
+                        : ""}
                       ：{curriculumSelection.rationale}
                     </p>
                     <AiRevisionButton
@@ -5369,7 +5414,8 @@ export default function CourseIdeationApp({
 
                 {!alignment && !curriculumSelectionNeedsRecalibration && (
                   <p className="mt-5 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-xs font-bold leading-6 text-amber-950">
-                    請先用上方主按鈕完成 108 課綱與 6Cs 校準；完成後這裡會顯示推薦與可選項。
+                    可直接按上方主按鈕完成 6Cs
+                    校準（108 課綱可不選）。若要對應課綱，可先依建議梯隊勾選，或搜尋／加入自訂依據。
                   </p>
                 )}
 
@@ -5380,6 +5426,7 @@ export default function CourseIdeationApp({
                   recommendedIds={
                     curriculumRecommendation?.performanceIds ?? []
                   }
+                  tierById={curriculumTierById}
                   maximum={2}
                   onToggle={(id, checked) =>
                     adjustCurriculumSelection(
@@ -5394,6 +5441,7 @@ export default function CourseIdeationApp({
                   entries={curriculumOptions.contents}
                   selectedIds={curriculumSelection?.contentIds ?? []}
                   recommendedIds={curriculumRecommendation?.contentIds ?? []}
+                  tierById={curriculumTierById}
                   maximum={2}
                   onToggle={(id, checked) =>
                     adjustCurriculumSelection(
@@ -5408,11 +5456,7 @@ export default function CourseIdeationApp({
                   <button
                     type="button"
                     onClick={() => requestAction("align")}
-                    disabled={
-                      busyAction !== null ||
-                      !curriculumCandidatesReady ||
-                      !curriculumSelectionComplete
-                    }
+                    disabled={busyAction !== null}
                     className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-400 bg-white py-3 text-sm font-black text-amber-950 transition active:scale-[0.97] hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-45"
                   >
                     {busyAction === "align" ? (
