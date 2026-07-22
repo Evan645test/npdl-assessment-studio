@@ -59,6 +59,7 @@ import {
   normalizeCoreKeywords,
   parseCourseAlignment,
   parseKeywordAnalysis,
+  sanitizeGeneratedText,
   validateCourseIdeationInput,
 } from "@/lib/course-ideation";
 import {
@@ -5859,7 +5860,10 @@ export default function CourseIdeationApp({
                           </ul>
                           <p className="mt-3 text-xs font-medium leading-6 text-zinc-600">
                             <span className="font-black">可觀察證據：</span>
-                            {alignment.learningOutcomes.knowledgeFoundation.evidence}
+                            {sanitizeGeneratedText(
+                              alignment.learningOutcomes.knowledgeFoundation
+                                .evidence,
+                            )}
                           </p>
                         </article>
                         {[
@@ -5896,11 +5900,11 @@ export default function CourseIdeationApp({
                               />
                             </div>
                             <p className="mt-2 text-sm font-black leading-7 text-zinc-800">
-                              {outcome.statement}
+                              {sanitizeGeneratedText(outcome.statement)}
                             </p>
                             <p className="mt-2 text-xs font-medium leading-6 text-zinc-600">
                               <span className="font-black">可觀察證據：</span>
-                              {outcome.evidence}
+                              {sanitizeGeneratedText(outcome.evidence)}
                             </p>
                           </article>
                         ))}

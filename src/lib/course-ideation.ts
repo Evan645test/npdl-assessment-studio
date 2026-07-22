@@ -23,6 +23,39 @@ import {
 } from "@/types/course-ideation";
 
 const MAX_TEXT_LENGTH = 500;
+
+/**
+ * Strip degenerate AI padding such as "內容內容內容…" that some models
+ * append when filling toward a max length. Collapses 4+ consecutive copies
+ * of a short token (1–4 chars) by removing the whole run.
+ */
+export function sanitizeGeneratedText(value: string): string {
+  let text = value.replace(/\u0000/g, "").trim();
+  if (!text) return text;
+  // Remove runs of 4+ identical short tokens (common padding artifact).
+  text = text.replace(/([\u4e00-\u9fffA-Za-z0-9]{1,4})\1{3,}/gu, "");
+  // Collapse remaining 3+ consecutive short token echoes to a single copy.
+  text = text.replace(/([\u4e00-\u9fffA-Za-z0-9]{1,4})\1{2,}/gu, "$1");
+  return text.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    responseError(`AI 回應缺少 ${field}。`);
+  }
+  const sanitized = sanitizeGeneratedText(value);
+  if (!sanitized) {
+    responseError(`AI 回應的 ${field} 內容無效。`);
+  }
+  return sanitized.slice(0, MAX_TEXT_LENGTH);
+}
+
+function optionalString(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const sanitized = sanitizeGeneratedText(value);
+  if (!sanitized) return null;
+  return sanitized.slice(0, MAX_TEXT_LENGTH);
+}
 const HANDOFF_MAX_AGE_MS = 1000 * 60 * 60 * 24;
 
 export const COURSE_IDEATION_RESPONSE_ERROR_MESSAGE =
@@ -311,18 +344,6 @@ function parseJsonObject(raw: string): Record<string, unknown> {
     responseError("AI 回應不是有效的 JSON 物件。");
   }
   return parsed as Record<string, unknown>;
-}
-
-function requiredString(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value.trim()) {
-    responseError(`AI 回應缺少 ${field}。`);
-  }
-  return value.trim().slice(0, MAX_TEXT_LENGTH);
-}
-
-function optionalString(value: unknown): string | null {
-  if (typeof value !== "string" || !value.trim()) return null;
-  return value.trim().slice(0, MAX_TEXT_LENGTH);
 }
 
 function firstString(

@@ -21,7 +21,7 @@ import {
 } from "@/types/course-ideation";
 import { getCurriculumEntry } from "@/lib/curriculum";
 import { getIndicatorById } from "@/data/indicators";
-import { CourseIdeationResponseError } from "@/lib/course-ideation";
+import { CourseIdeationResponseError, sanitizeGeneratedText } from "@/lib/course-ideation";
 import type { GenerationPromptParts } from "@/lib/ai/client";
 import {
   buildTaiwanHighSchoolLabPrompt,
@@ -413,6 +413,22 @@ function validateControlledIds(
 export function buildDesiredResults(
   alignment: CourseAlignmentResult,
 ): DesiredResults {
+  const sanitizeOutcome = <T extends { statement: string; evidence: string }>(
+    outcome: T,
+  ): T => ({
+    ...outcome,
+    statement: sanitizeGeneratedText(outcome.statement).slice(0, 500),
+    evidence: sanitizeGeneratedText(outcome.evidence).slice(0, 500),
+  });
+  const knowledgeFoundation = sanitizeOutcome(
+    alignment.learningOutcomes.knowledgeFoundation,
+  );
+  const competencySubdimension = sanitizeOutcome(
+    alignment.learningOutcomes.competencySubdimension,
+  );
+  const fourElementsPractice = sanitizeOutcome(
+    alignment.learningOutcomes.fourElementsPractice,
+  );
   return {
     transferGoals: [...alignment.backwardDesign.transferGoals],
     enduringUnderstandings: [...alignment.backwardDesign.enduringUnderstandings],
@@ -420,25 +436,27 @@ export function buildDesiredResults(
     outcomes: [
       {
         id: "knowledge-foundation",
-        ...alignment.learningOutcomes.knowledgeFoundation,
+        statement: knowledgeFoundation.statement,
+        evidence: knowledgeFoundation.evidence,
       },
       {
         id: "competency-subdimension",
-        ...alignment.learningOutcomes.competencySubdimension,
+        statement: competencySubdimension.statement,
+        evidence: competencySubdimension.evidence,
       },
       {
         id: "four-elements-practice",
-        ...alignment.learningOutcomes.fourElementsPractice,
+        statement: fourElementsPractice.statement,
+        evidence: fourElementsPractice.evidence,
       },
-    ].map(({ id, statement, evidence }) => ({ id, statement, evidence })) as DesiredResults["outcomes"],
-    successCriteria:
-      alignment.learningOutcomes.knowledgeFoundation.successCriteria.map(
-        (text, index) => ({
-          id: `success-${index + 1}`,
-          text,
-          outcomeId: "knowledge-foundation" as const,
-        }),
-      ),
+    ],
+    successCriteria: knowledgeFoundation.successCriteria.map(
+      (text, index) => ({
+        id: `success-${index + 1}`,
+        text: sanitizeGeneratedText(text).slice(0, 500),
+        outcomeId: "knowledge-foundation" as const,
+      }),
+    ),
   };
 }
 

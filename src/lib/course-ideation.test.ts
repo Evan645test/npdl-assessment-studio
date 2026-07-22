@@ -10,6 +10,7 @@ import {
   normalizeCoreKeywords,
   parseCourseAlignment,
   parseKeywordAnalysis,
+  sanitizeGeneratedText,
   validateCourseIdeationInput,
 } from "@/lib/course-ideation";
 import { getCurriculumCandidates } from "@/lib/curriculum";
@@ -155,6 +156,18 @@ describe("course ideation contracts", () => {
         "第六個詞",
       ]),
     ).toEqual(["極端氣候", "校園熱島", "數據證據", "小組倡議", "利害關係人"]);
+  });
+
+  it("strips degenerate repeated padding from generated text", () => {
+    const padded =
+      "「人機協作檢核表」，記錄學生對 AI 回答的質疑、核對過程及最終修正建議" +
+      "內容".repeat(40);
+    expect(sanitizeGeneratedText(padded)).toBe(
+      "「人機協作檢核表」，記錄學生對 AI 回答的質疑、核對過程及最終修正建議",
+    );
+    expect(sanitizeGeneratedText("有效敘述不會被誤刪")).toBe(
+      "有效敘述不會被誤刪",
+    );
   });
 
   it("allows optional curriculum selection and recommendation counts", () => {
