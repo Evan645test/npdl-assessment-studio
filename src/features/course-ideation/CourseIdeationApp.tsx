@@ -412,6 +412,29 @@ function revisionParentForTarget(
   return values.evidencePlan;
 }
 
+function formatSuccessCriteriaLabels(
+  criterionIds: string[],
+  criteria: Array<{ id: string; text: string }> | null | undefined,
+): string {
+  if (criterionIds.length === 0) return "尚未選取";
+  return criterionIds
+    .map((id) => {
+      const match = criteria?.find((item) => item.id === id);
+      const text = match?.text?.trim();
+      return text || id;
+    })
+    .join("；");
+}
+
+function successCriterionLabel(
+  criterionId: string,
+  criteria: Array<{ id: string; text: string }> | null | undefined,
+): string {
+  const match = criteria?.find((item) => item.id === criterionId);
+  const text = match?.text?.trim();
+  return text || criterionId;
+}
+
 function CriterionCheckboxes({
   criteria,
   selectedIds,
@@ -430,8 +453,8 @@ function CriterionCheckboxes({
         {criteria.map((criterion) => (
           <label
             key={criterion.id}
-            title={criterion.text}
-            className="flex cursor-pointer items-center gap-2 rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-[10px] font-black text-zinc-700"
+            title={criterion.id}
+            className="flex max-w-full cursor-pointer items-start gap-2 rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-[10px] font-bold leading-5 text-zinc-700"
           >
             <input
               type="checkbox"
@@ -439,9 +462,13 @@ function CriterionCheckboxes({
               onChange={(event) =>
                 onToggle(criterion.id, event.target.checked)
               }
-              className="accent-amber-700"
+              className="mt-0.5 shrink-0 accent-amber-700"
             />
-            {criterion.id}
+            <span className="min-w-0">
+              <span className="block font-black text-amber-950">
+                {sanitizeGeneratedText(criterion.text)}
+              </span>
+            </span>
           </label>
         ))}
       </div>
@@ -6119,7 +6146,10 @@ export default function CourseIdeationApp({
                             ["成果", evidencePlan.performanceTask.product],
                             [
                               "成功指標",
-                              evidencePlan.performanceTask.criterionIds.join("、"),
+                              formatSuccessCriteriaLabels(
+                                evidencePlan.performanceTask.criterionIds,
+                                desiredResults?.successCriteria,
+                              ),
                             ],
                           ].map(([label, value]) => (
                             <EvidenceText
@@ -6262,8 +6292,12 @@ export default function CourseIdeationApp({
                                 tone="emerald"
                               />
                             </div>
-                            <p className="mt-2 text-[10px] font-black text-zinc-500">
-                              對應 {item.criterionIds.join("、")}
+                            <p className="mt-2 text-[10px] font-bold leading-5 text-zinc-500">
+                              對應{" "}
+                              {formatSuccessCriteriaLabels(
+                                item.criterionIds,
+                                desiredResults?.successCriteria,
+                              )}
                             </p>
                           </article>
                         ))}
@@ -6295,7 +6329,10 @@ export default function CourseIdeationApp({
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <h4 className="text-xs font-black text-amber-900">
-                                    {criterion.criterionId}
+                                    {successCriterionLabel(
+                                      criterion.criterionId,
+                                      desiredResults?.successCriteria,
+                                    )}
                                   </h4>
                                   <AiRevisionButton
                                     label="AI 修改這張卡"
@@ -6317,7 +6354,10 @@ export default function CourseIdeationApp({
                                   ].map(([level, text]) => (
                                     <EvidenceText
                                       key={level}
-                                      label={`${criterion.criterionId}｜${level}`}
+                                      label={`${successCriterionLabel(
+                                        criterion.criterionId,
+                                        desiredResults?.successCriteria,
+                                      )}｜${level}`}
                                       text={text}
                                       tone="amber"
                                     />
@@ -6615,7 +6655,10 @@ export default function CourseIdeationApp({
                                     className="rounded-xl border border-amber-200 p-4"
                                   >
                                     <h5 className="text-xs font-black text-amber-900">
-                                      {criterion.criterionId}
+                                      {successCriterionLabel(
+                                        criterion.criterionId,
+                                        desiredResults?.successCriteria,
+                                      )}
                                     </h5>
                                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                                       {[
@@ -6917,6 +6960,15 @@ export default function CourseIdeationApp({
                                                 focus={mapping?.focus}
                                                 purpose={mapping?.purpose}
                                                 criterionIds={mapping?.criterionIds}
+                                                criterionLabels={
+                                                  mapping?.criterionIds?.map(
+                                                    (id) =>
+                                                      successCriterionLabel(
+                                                        id,
+                                                        desiredResults?.successCriteria,
+                                                      ),
+                                                  ) ?? []
+                                                }
                                                 observableEvidence={mapping?.observableEvidence}
                                               />
                                             ),
@@ -7671,7 +7723,7 @@ export default function CourseIdeationApp({
                                       <label
                                         key={option.id}
                                         title={option.label}
-                                        className="flex cursor-pointer items-center gap-2 rounded-lg border border-indigo-200 bg-white px-2.5 py-2 text-[10px] font-black text-zinc-700"
+                                        className="flex max-w-full cursor-pointer items-start gap-2 rounded-lg border border-indigo-200 bg-white px-2.5 py-2 text-[10px] font-bold leading-5 text-zinc-700"
                                       >
                                         <input
                                           type="checkbox"
@@ -7686,9 +7738,9 @@ export default function CourseIdeationApp({
                                               event.target.checked,
                                             )
                                           }
-                                          className="accent-indigo-700"
+                                          className="mt-0.5 shrink-0 accent-indigo-700"
                                         />
-                                        {option.id}
+                                        <span className="min-w-0">{option.label}</span>
                                       </label>
                                     ))}
                                   </div>
@@ -7800,10 +7852,28 @@ export default function CourseIdeationApp({
                                 {lesson.decisionRule}
                               </p>
                             </div>
-                            <p className="mt-3 text-[10px] font-black leading-5 text-zinc-500">
-                              成果 {lesson.outcomeIds.join("、")} · 成功指標{" "}
-                              {lesson.criterionIds.join("、")} · 證據{" "}
-                              {lesson.evidenceItemIds.join("、")}
+                            <p className="mt-3 text-[10px] font-bold leading-5 text-zinc-500">
+                              成果{" "}
+                              {(
+                                desiredResults?.outcomes.filter((outcome) =>
+                                  lesson.outcomeIds.includes(outcome.id),
+                                ) ?? []
+                              )
+                                .map((outcome) => outcome.statement)
+                                .join("；") || lesson.outcomeIds.join("、")}{" "}
+                              · 成功指標{" "}
+                              {formatSuccessCriteriaLabels(
+                                lesson.criterionIds,
+                                desiredResults?.successCriteria,
+                              )}{" "}
+                              · 證據{" "}
+                              {(
+                                evidencePlan?.evidenceItems.filter((item) =>
+                                  lesson.evidenceItemIds.includes(item.id),
+                                ) ?? []
+                              )
+                                .map((item) => item.title)
+                                .join("；") || lesson.evidenceItemIds.join("、")}
                             </p>
                             {!promptsReady &&
                               alignmentAudit.unitBlueprint === "stale" && (

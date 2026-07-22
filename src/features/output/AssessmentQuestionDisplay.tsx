@@ -278,6 +278,7 @@ interface AssessmentQuestionDetailProps {
   focus?: AssessmentFocusKey | string;
   purpose?: string;
   criterionIds?: string[];
+  criterionLabels?: string[];
   observableEvidence?: string;
 }
 
@@ -289,6 +290,7 @@ export function AssessmentQuestionDetail({
   focus,
   purpose,
   criterionIds,
+  criterionLabels,
   observableEvidence,
 }: AssessmentQuestionDetailProps) {
   const title = focus
@@ -358,7 +360,10 @@ export function AssessmentQuestionDetail({
             {criterionIds?.length ? (
               <>
                 <span className="font-black">成功指標：</span>
-                {criterionIds.join("、")}
+                {(criterionLabels?.length
+                  ? criterionLabels
+                  : criterionIds
+                ).join("；")}
                 <br />
               </>
             ) : null}
