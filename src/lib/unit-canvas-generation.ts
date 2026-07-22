@@ -39,7 +39,7 @@ export function buildUnitWorksheetDownloadFileName(
   unitName: string,
   lessonCount: number,
 ): string {
-  return `NPDL-${unitName}-${lessonCount}節學習單與判讀指引.md`;
+  return `NPDL-${unitName}-${lessonCount}節學習單學生版與教師參考解答.md`;
 }
 
 export async function generateUnitCanvasDocument(options: {
@@ -106,7 +106,7 @@ function labelForKind(kind: UnitCanvasDocumentKind): {
 } {
   return kind === "teacher_prep"
     ? { product: "教師備課教案", promptNoun: "教師備課提示詞" }
-    : { product: "學生學習單", promptNoun: "學習單提示詞" };
+    : { product: "學習單（學生版＋教師參考解答版）", promptNoun: "學習單提示詞" };
 }
 
 export async function launchUnitDocumentInCanvas(options: {

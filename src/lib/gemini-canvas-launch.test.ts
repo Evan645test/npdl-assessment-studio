@@ -26,9 +26,8 @@ describe("gemini-canvas-launch", () => {
     const prompt = buildCanvasWorksheetStarterPrompt("反應速率", 4);
     expect(prompt).toContain("反應速率");
     expect(prompt).toContain("4 節");
-    expect(prompt).toContain("學生學習單");
-    expect(prompt).toContain("可直接列印");
-    expect(prompt).toContain("表格標題");
+    expect(prompt).toContain("學生版");
+    expect(prompt).toContain("教師參考解答版");
     expect(prompt).toContain("不要產生教案流程表");
     expect(prompt.length).toBeLessThanOrEqual(GEMINI_CANVAS_URL_PROMPT_LIMIT);
     expect(buildGeminiCanvasUrl(prompt)).toContain("?prompt=");

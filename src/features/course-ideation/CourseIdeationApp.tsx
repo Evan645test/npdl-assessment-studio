@@ -108,6 +108,7 @@ import {
   buildEvidencePlanRepairPrompt,
   buildUnitPromptPackage,
   buildUnitWorksheetPromptPackage,
+  buildUnitPrepCoachGemPackage,
   buildUnitBlueprintPrompt,
   buildUnitBlueprintRepairPrompt,
   DEFAULT_UNIT_CONSTRAINTS,
@@ -1313,13 +1314,27 @@ function promptPreviewKindLabel(promptPackage: LessonPromptPackage): {
   title: string;
   subtitle: string;
   taskLabel: string;
+  fullLabel: string;
+  gemLabel: string;
 } {
   if (promptPackage.lessonId === "unit-worksheets") {
     return {
-      title: "學生學習單提示詞預覽",
+      title: "學習單提示詞預覽",
       subtitle:
-        "此提示詞產出可直接列印的全部節次學生學習單（含完整表格標題／表頭與作答欄）與教師判讀指引；不含教師備課教案。",
+        "此提示詞產出「學生版」與「教師參考解答版」兩部分；學生版可直接列印，教師版含參考解答；不含備課教案。",
       taskLabel: "學習單任務資料",
+      fullLabel: "完整 Canvas 提示詞",
+      gemLabel: "Gem 固定設定",
+    };
+  }
+  if (promptPackage.lessonId === "unit-prep-coach-gem") {
+    return {
+      title: "備課諮詢 Gem 建立包預覽",
+      subtitle:
+        "複製「Gem 自訂指令」與「本單元設計錨點」到 Gemini Gem；課堂實施問題的建議會錨定校準、學習終點與評量證據。",
+      taskLabel: "建立說明與設計錨點",
+      fullLabel: "完整建立包",
+      gemLabel: "Gem 自訂指令",
     };
   }
   if (promptPackage.lessonId === "unit-all") {
@@ -1328,12 +1343,16 @@ function promptPreviewKindLabel(promptPackage: LessonPromptPackage): {
       subtitle:
         "此提示詞只產出全部節次教師備課教案；不含學生學習單。可直接貼入 Gemini Canvas。",
       taskLabel: "教師備課任務資料",
+      fullLabel: "完整 Canvas 提示詞",
+      gemLabel: "Gem 固定設定",
     };
   }
   return {
     title: "Gemini Canvas 提示詞預覽",
     subtitle: "可直接貼入 Gemini Canvas，或分別建立私人 Gem 與貼入任務資料。",
     taskLabel: "任務資料",
+    fullLabel: "完整 Canvas 提示詞",
+    gemLabel: "Gem 固定設定",
   };
 }
 
@@ -1393,13 +1412,13 @@ function PromptPreviewModal({
               )}
               {[
                 {
-                  label: "完整 Canvas 提示詞",
-                  copyLabel: "完整提示詞",
+                  label: kindLabels.fullLabel,
+                  copyLabel: kindLabels.fullLabel,
                   value: promptPackage.fullPrompt,
                 },
                 {
-                  label: "Gem 固定設定",
-                  copyLabel: "Gem 設定",
+                  label: kindLabels.gemLabel,
+                  copyLabel: kindLabels.gemLabel,
                   value: promptPackage.gemInstructions,
                 },
                 {
@@ -4218,6 +4237,72 @@ export default function CourseIdeationApp({
     }
   };
 
+  const createPrepCoachGemPackage = (): LessonPromptPackage | null => {
+    try {
+      return buildUnitPrepCoachGemPackage(currentProject);
+    } catch (caught) {
+      setError(toUserErrorMessage(caught));
+      return null;
+    }
+  };
+
+  const previewPrepCoachGem = () => {
+    const promptPackage = createPrepCoachGemPackage();
+    if (promptPackage) {
+      setPromptPreview(promptPackage);
+      setCopyNotice(null);
+    }
+  };
+
+  const copyPrepCoachGemInstructions = () => {
+    const promptPackage = createPrepCoachGemPackage();
+    if (promptPackage) {
+      void copyPromptText(
+        promptPackage,
+        promptPackage.gemInstructions,
+        "備課諮詢 Gem 指令",
+      );
+    }
+  };
+
+  const copyPrepCoachDesignAnchors = () => {
+    const promptPackage = createPrepCoachGemPackage();
+    if (promptPackage) {
+      void copyPromptText(
+        promptPackage,
+        promptPackage.lessonTaskPrompt,
+        "本單元設計錨點與建立說明",
+      );
+    }
+  };
+
+  const downloadPrepCoachGemPackage = () => {
+    const promptPackage = createPrepCoachGemPackage();
+    if (!promptPackage || !unitBlueprint) return;
+    const blob = new Blob([promptPackage.fullPrompt], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `NPDL-${input.unitName}-備課諮詢Gem建立包.md`.replace(
+      /[\\/:*?"<>|]/g,
+      "-",
+    );
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setError(null);
+  };
+
+  const openGeminiGemsManager = () => {
+    window.open("https://gemini.google.com/gems/view", "_blank", "noopener,noreferrer");
+    setCopyNotice(
+      "已開啟 Gemini Gem 管理頁。請先複製「Gem 指令」與「設計錨點」，再新增私人 Gem。",
+    );
+  };
+
   const previewWorksheetPrompt = () => {
     const promptPackage = createWorksheetPromptPackage();
     if (promptPackage) {
@@ -4246,7 +4331,7 @@ export default function CourseIdeationApp({
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `NPDL-${input.unitName}-${unitBlueprint.lessons.length}節學習單-Gemini-Canvas提示詞.md`
+    anchor.download = `NPDL-${input.unitName}-${unitBlueprint.lessons.length}節學習單學生版與教師參考解答-Gemini-Canvas提示詞.md`
       .replace(/[\\/:*?"<>|]/g, "-");
     document.body.append(anchor);
     anchor.click();
@@ -8166,17 +8251,75 @@ export default function CourseIdeationApp({
                               : "標記外部產生"}
                           </button>
                         </div>
+
+                        <div className="mt-4 rounded-xl border border-emerald-300 bg-white/80 p-3">
+                          <h4 className="text-xs font-black text-emerald-950">
+                            備課諮詢 Gem
+                          </h4>
+                          <p className="mt-1 text-[11px] font-bold leading-5 text-emerald-800">
+                            建立私人 Gem 後，課堂實施問題（時間不夠、學生卡關、證據不足等）可向它提問；回答會錨定本單元已完成的校準、學習終點、評量證據與節次藍圖。
+                          </p>
+                          <div className="mt-3 grid gap-2">
+                            <button
+                              type="button"
+                              onClick={previewPrepCoachGem}
+                              disabled={!canvasReady}
+                              className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-[11px] font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              預覽 Gem 建立包
+                            </button>
+                            <button
+                              type="button"
+                              onClick={copyPrepCoachGemInstructions}
+                              disabled={!canvasReady}
+                              className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-800 px-3 text-[11px] font-black text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Clipboard className="h-3.5 w-3.5" />
+                              複製 Gem 指令
+                            </button>
+                            <button
+                              type="button"
+                              onClick={copyPrepCoachDesignAnchors}
+                              disabled={!canvasReady}
+                              className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-[11px] font-black text-emerald-950 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Clipboard className="h-3.5 w-3.5" />
+                              複製設計錨點
+                            </button>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <button
+                                type="button"
+                                onClick={downloadPrepCoachGemPackage}
+                                disabled={!canvasReady}
+                                className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-[11px] font-black text-emerald-950 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                                下載建立包
+                              </button>
+                              <button
+                                type="button"
+                                onClick={openGeminiGemsManager}
+                                disabled={!canvasReady}
+                                className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-[11px] font-black text-emerald-950 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                開啟 Gem 管理
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </article>
 
                       <article className="rounded-xl border border-sky-200 bg-sky-50/70 p-4">
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <h3 className="text-sm font-black text-sky-950">
-                              學生學習單
+                              學習單
                             </h3>
                             <p className="mt-1 text-xs font-bold leading-6 text-sky-800">
                               {unitBlueprint
-                                ? `${unitBlueprint.lessons.length} 節可直接列印的學習單＋教師判讀指引（不含教案）`
+                                ? `${unitBlueprint.lessons.length} 節：學生版（可直接列印）＋教師參考解答版`
                                 : "確認節次藍圖後開放學習單提示詞。"}
                             </p>
                           </div>

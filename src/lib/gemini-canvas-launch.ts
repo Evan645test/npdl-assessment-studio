@@ -17,8 +17,8 @@ export function buildCanvasWorksheetStarterPrompt(
 ): string {
   return [
     "請在 Gemini Canvas 建立繁體中文文件。",
-    `我將貼上「${unitName}」共 ${lessonCount} 節的學生學習單任務資料。`,
-    "請一次產生全部節次、可直接列印使用的學生學習單（含完整表格標題／表頭與作答欄）與教師判讀指引。",
+    `我將貼上「${unitName}」共 ${lessonCount} 節的學習單任務資料。`,
+    "請一次產生學生版學習單與教師參考解答版（皆含完整表格標題／表頭）；學生版可直接列印。",
     "不要產生教案流程表，不要只產生一節。",
     "收到貼文後立即開始，不要反問。",
   ].join("");

@@ -66,7 +66,7 @@ describe("unit-canvas-generation", () => {
       "NPDL-反應速率-4節教師備課教案.md",
     );
     expect(buildUnitWorksheetDownloadFileName("反應速率", 4)).toBe(
-      "NPDL-反應速率-4節學習單與判讀指引.md",
+      "NPDL-反應速率-4節學習單學生版與教師參考解答.md",
     );
   });
 

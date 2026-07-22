@@ -6,6 +6,7 @@ import {
   buildLessonPromptPackage,
   buildUnitPromptPackage,
   buildUnitWorksheetPromptPackage,
+  buildUnitPrepCoachGemPackage,
   isValidLearningDesignProject,
   parseEvidencePlan,
   parseUnitBlueprint,
@@ -564,11 +565,13 @@ describe("learning design project", () => {
     expect(worksheetPromptPackage.lessonId).toBe("unit-worksheets");
     expect(worksheetPromptPackage.fullPrompt).toContain("全部節次學習單任務資料");
     expect(worksheetPromptPackage.fullPrompt).toContain("不要產生教案流程表");
+    expect(worksheetPromptPackage.fullPrompt).toContain("學生版");
+    expect(worksheetPromptPackage.fullPrompt).toContain("教師參考解答版");
     expect(worksheetPromptPackage.fullPrompt).toContain("可直接列印");
     expect(worksheetPromptPackage.fullPrompt).toContain("完整表頭");
     expect(worksheetPromptPackage.fullPrompt).toContain("班級");
     expect(worksheetPromptPackage.fullPrompt).toContain("座號");
-    expect(worksheetPromptPackage.fullPrompt).toContain("printReadyLayout");
+    expect(worksheetPromptPackage.fullPrompt).toContain("teacherAnswerKeyRequirements");
     expect(worksheetPromptPackage.fullPrompt).not.toContain("完整單元逐節教案");
     expect(worksheetPromptPackage.fullPrompt).toContain(
       '"heading": "A. 知識基礎"',
@@ -580,6 +583,20 @@ describe("learning design project", () => {
     expect(
       worksheetPromptPackage.fullPrompt.match(/"heading": "A\. 知識基礎"/g),
     ).toHaveLength(3);
+
+    const prepCoachGemPackage = buildUnitPrepCoachGemPackage(
+      project,
+      1_700_000_400_000,
+    );
+    expect(prepCoachGemPackage.lessonId).toBe("unit-prep-coach-gem");
+    expect(prepCoachGemPackage.gemInstructions).toContain("備課諮詢 Gem");
+    expect(prepCoachGemPackage.gemInstructions).toContain("設計錨點");
+    expect(prepCoachGemPackage.fullPrompt).toContain("本單元設計錨點");
+    expect(prepCoachGemPackage.fullPrompt).toContain("desiredResults");
+    expect(prepCoachGemPackage.fullPrompt).toContain("evidencePlan");
+    expect(prepCoachGemPackage.fullPrompt).toContain("unitBlueprint");
+    expect(prepCoachGemPackage.fullPrompt).toContain("不得要求或輸出學生姓名");
+    expect(prepCoachGemPackage.gemInstructions).toContain("不要輸出 API Key");
 
     const staleProject: LearningDesignProjectV1 = {
       ...project,
