@@ -17,9 +17,22 @@ export function buildCanvasWorksheetStarterPrompt(
 ): string {
   return [
     "請在 Gemini Canvas 建立繁體中文文件。",
-    `我將貼上「${unitName}」共 ${lessonCount} 節的完整學習單任務資料。`,
+    `我將貼上「${unitName}」共 ${lessonCount} 節的學生學習單任務資料。`,
     "請一次產生全部節次的學生學習單（每節含「知識基礎」與「NPDL 子向度思考」）與教師判讀指引。",
     "不要產生教案流程表，不要只產生一節。",
+    "收到貼文後立即開始，不要反問。",
+  ].join("");
+}
+
+export function buildCanvasTeacherPrepStarterPrompt(
+  unitName: string,
+  lessonCount: number,
+): string {
+  return [
+    "請在 Gemini Canvas 建立繁體中文文件。",
+    `我將貼上「${unitName}」共 ${lessonCount} 節的教師備課／逐節教案任務資料。`,
+    "請一次產生全部節次的教師教案（含流程表、形成性檢核與教學決策）。",
+    "不要產生學生學習單，不要只產生一節。",
     "收到貼文後立即開始，不要反問。",
   ].join("");
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
+  buildUnitCanvasDownloadFileName,
   buildUnitWorksheetDownloadFileName,
+  launchUnitDocumentInCanvas,
   launchUnitWorksheetsInCanvas,
   resolveUnitCanvasGenerationModel,
   UNIT_CANVAS_GENERATION_MODEL,
@@ -59,10 +61,31 @@ describe("unit-canvas-generation", () => {
     );
   });
 
-  it("builds worksheet download file names", () => {
+  it("builds teacher-prep and worksheet download file names", () => {
+    expect(buildUnitCanvasDownloadFileName("反應速率", 4)).toBe(
+      "NPDL-反應速率-4節教師備課教案.md",
+    );
     expect(buildUnitWorksheetDownloadFileName("反應速率", 4)).toBe(
       "NPDL-反應速率-4節學習單與判讀指引.md",
     );
+  });
+
+  it("launches teacher-prep Canvas documents with a distinct product label", async () => {
+    vi.mocked(generateContent).mockRejectedValueOnce(
+      new Error("404 model_not_found"),
+    );
+    const result = await launchUnitDocumentInCanvas({
+      prompt: "教師備課提示詞",
+      unitName: "化學流言",
+      lessonCount: 6,
+      kind: "teacher_prep",
+      geminiKey: "test-key",
+      model: "gemini-3-flash-preview",
+    });
+    expect(result.mode).toBe("clipboard");
+    expect(result.message).toContain("教師備課提示詞");
+    expect(result.message).not.toContain("學習單提示詞");
+    expect(copyTextToClipboard).toHaveBeenCalledWith("教師備課提示詞");
   });
 
   it("opens Canvas before async generation and falls back to clipboard on API failure", async () => {

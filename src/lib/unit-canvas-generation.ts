@@ -5,6 +5,7 @@ import {
 } from "@/lib/ai/client";
 import { toUserErrorMessage } from "@/lib/errors";
 import {
+  buildCanvasTeacherPrepStarterPrompt,
   buildCanvasWorksheetStarterPrompt,
   copyTextToClipboard,
   downloadTextFile,
@@ -14,6 +15,8 @@ import {
 /** Fallback when the teacher is not currently on a Gemini BYOK model. */
 export const UNIT_CANVAS_GENERATION_MODEL = "gemini-2.5-flash";
 export const UNIT_CANVAS_MAX_OUTPUT_TOKENS = 65_536;
+
+export type UnitCanvasDocumentKind = "teacher_prep" | "worksheets";
 
 export function resolveUnitCanvasGenerationModel(selectedModel: string): string {
   if (
@@ -29,7 +32,7 @@ export function buildUnitCanvasDownloadFileName(
   unitName: string,
   lessonCount: number,
 ): string {
-  return `NPDL-${unitName}-${lessonCount}節完整教案與學習單.md`;
+  return `NPDL-${unitName}-${lessonCount}節教師備課教案.md`;
 }
 
 export function buildUnitWorksheetDownloadFileName(
@@ -77,18 +80,50 @@ function canvasOpenHint(opened: boolean): string {
     : "若瀏覽器封鎖彈出視窗，請允許本站彈出視窗後再試，或手動開啟 https://gemini.google.com/canvas";
 }
 
-export async function launchUnitWorksheetsInCanvas(options: {
+function starterPromptForKind(
+  kind: UnitCanvasDocumentKind,
+  unitName: string,
+  lessonCount: number,
+): string {
+  return kind === "teacher_prep"
+    ? buildCanvasTeacherPrepStarterPrompt(unitName, lessonCount)
+    : buildCanvasWorksheetStarterPrompt(unitName, lessonCount);
+}
+
+function downloadNameForKind(
+  kind: UnitCanvasDocumentKind,
+  unitName: string,
+  lessonCount: number,
+): string {
+  return kind === "teacher_prep"
+    ? buildUnitCanvasDownloadFileName(unitName, lessonCount)
+    : buildUnitWorksheetDownloadFileName(unitName, lessonCount);
+}
+
+function labelForKind(kind: UnitCanvasDocumentKind): {
+  product: string;
+  promptNoun: string;
+} {
+  return kind === "teacher_prep"
+    ? { product: "教師備課教案", promptNoun: "教師備課提示詞" }
+    : { product: "學生學習單", promptNoun: "學習單提示詞" };
+}
+
+export async function launchUnitDocumentInCanvas(options: {
   prompt: string;
   unitName: string;
   lessonCount: number;
+  kind: UnitCanvasDocumentKind;
   geminiKey?: string;
   model?: string;
   onProgress?: GenerationOptions["onProgress"];
 }): Promise<UnitWorksheetLaunchResult> {
-  const starterPrompt = buildCanvasWorksheetStarterPrompt(
+  const starterPrompt = starterPromptForKind(
+    options.kind,
     options.unitName,
     options.lessonCount,
   );
+  const labels = labelForKind(options.kind);
 
   // Open Canvas in the same user-gesture turn so popup blockers do not
   // suppress the window after long async generation / clipboard work.
@@ -106,7 +141,8 @@ export async function launchUnitWorksheetsInCanvas(options: {
       });
       downloadTextFile(
         generated,
-        buildUnitWorksheetDownloadFileName(
+        downloadNameForKind(
+          options.kind,
           options.unitName,
           options.lessonCount,
         ),
@@ -115,7 +151,7 @@ export async function launchUnitWorksheetsInCanvas(options: {
       return {
         mode: "generated",
         canvasOpened,
-        message: `全部節次學習單已產生、下載並複製；${canvasOpenHint(canvasOpened)}，可直接貼上編修。`,
+        message: `全部節次${labels.product}已產生、下載並複製；${canvasOpenHint(canvasOpened)}，可直接貼上編修。`,
       };
     } catch (caught) {
       await copyTextToClipboard(options.prompt);
@@ -123,7 +159,7 @@ export async function launchUnitWorksheetsInCanvas(options: {
       return {
         mode: "clipboard",
         canvasOpened,
-        message: `無法一鍵產生學習單（${reason}）已改為複製完整學習單提示詞；${canvasOpenHint(canvasOpened)}，請貼上（⌘V / Ctrl+V）後 Enter 開始。`,
+        message: `無法一鍵產生${labels.product}（${reason}）已改為複製完整${labels.promptNoun}；${canvasOpenHint(canvasOpened)}，請貼上（⌘V / Ctrl+V）後 Enter 開始。`,
       };
     }
   }
@@ -132,6 +168,18 @@ export async function launchUnitWorksheetsInCanvas(options: {
   return {
     mode: "clipboard",
     canvasOpened,
-    message: `學習單提示詞已複製；${canvasOpenHint(canvasOpened)}。請貼上（⌘V / Ctrl+V）後 Enter 開始產生；若需一鍵產生請確認 Gemini API Key 與模型可用。`,
+    message: `${labels.promptNoun}已複製；${canvasOpenHint(canvasOpened)}。請貼上（⌘V / Ctrl+V）後 Enter 開始產生；若需一鍵產生請確認 Gemini API Key 與模型可用。`,
   };
+}
+
+/** @deprecated Prefer launchUnitDocumentInCanvas({ kind: "worksheets" }) */
+export async function launchUnitWorksheetsInCanvas(options: {
+  prompt: string;
+  unitName: string;
+  lessonCount: number;
+  geminiKey?: string;
+  model?: string;
+  onProgress?: GenerationOptions["onProgress"];
+}): Promise<UnitWorksheetLaunchResult> {
+  return launchUnitDocumentInCanvas({ ...options, kind: "worksheets" });
 }

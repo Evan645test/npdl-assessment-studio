@@ -542,18 +542,15 @@ describe("learning design project", () => {
     expect(unitPromptPackage.fullPrompt).toContain('"lessonNumber": 2');
     expect(unitPromptPackage.fullPrompt).toContain('"lessonNumber": 3');
     expect(unitPromptPackage.fullPrompt).toContain("完整單元逐節教案");
-    expect(unitPromptPackage.fullPrompt).toContain("每節學生學習單");
-    expect(unitPromptPackage.fullPrompt).toContain(
+    expect(unitPromptPackage.fullPrompt).toContain("教師備課");
+    expect(unitPromptPackage.fullPrompt).toContain("不要產生學生學習單");
+    expect(unitPromptPackage.fullPrompt).not.toContain("每節學生學習單");
+    expect(unitPromptPackage.fullPrompt).not.toContain(
       '"heading": "A. 知識基礎"',
     );
-    expect(unitPromptPackage.fullPrompt).toContain(
-      '"heading": "B. NPDL 子向度思考"',
+    expect(unitPromptPackage.fullPrompt).not.toContain(
+      "學生學習單與教師判讀指引",
     );
-    expect(unitPromptPackage.fullPrompt).toContain('"officialProgression"');
-    expect(
-      unitPromptPackage.fullPrompt.match(/"heading": "A\. 知識基礎"/g),
-    ).toHaveLength(3);
-    expect(unitPromptPackage.fullPrompt).toContain("學生學習單與教師判讀指引");
     expect(unitPromptPackage.fullPrompt).toContain("低科技替代路徑");
     expect(unitPromptPackage.fullPrompt).toContain(
       "未指定物理、化學、生物或地球科學實驗室",
@@ -571,6 +568,13 @@ describe("learning design project", () => {
     expect(worksheetPromptPackage.fullPrompt).toContain(
       '"heading": "A. 知識基礎"',
     );
+    expect(worksheetPromptPackage.fullPrompt).toContain(
+      '"heading": "B. NPDL 子向度思考"',
+    );
+    expect(worksheetPromptPackage.fullPrompt).toContain('"officialProgression"');
+    expect(
+      worksheetPromptPackage.fullPrompt.match(/"heading": "A\. 知識基礎"/g),
+    ).toHaveLength(3);
 
     const staleProject: LearningDesignProjectV1 = {
       ...project,

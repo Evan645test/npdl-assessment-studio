@@ -97,7 +97,10 @@ import {
   parseLessonReferenceAnalysis,
   type ExtractedLessonReference,
 } from "@/lib/lesson-reference";
-import { launchUnitWorksheetsInCanvas } from "@/lib/unit-canvas-generation";
+import {
+  launchUnitDocumentInCanvas,
+  type UnitCanvasDocumentKind,
+} from "@/lib/unit-canvas-generation";
 import {
   buildDesiredResults,
   buildAssessmentDesignContext,
@@ -1306,15 +1309,46 @@ interface PromptPreviewModalProps {
   onCopy: (text: string, label: string) => void;
 }
 
+function promptPreviewKindLabel(promptPackage: LessonPromptPackage): {
+  title: string;
+  subtitle: string;
+  taskLabel: string;
+} {
+  if (promptPackage.lessonId === "unit-worksheets") {
+    return {
+      title: "學生學習單提示詞預覽",
+      subtitle:
+        "此提示詞只產出全部節次學生學習單與教師判讀指引；不含教師備課教案。可直接貼入 Gemini Canvas。",
+      taskLabel: "學習單任務資料",
+    };
+  }
+  if (promptPackage.lessonId === "unit-all") {
+    return {
+      title: "教師備課提示詞預覽",
+      subtitle:
+        "此提示詞只產出全部節次教師備課教案；不含學生學習單。可直接貼入 Gemini Canvas。",
+      taskLabel: "教師備課任務資料",
+    };
+  }
+  return {
+    title: "Gemini Canvas 提示詞預覽",
+    subtitle: "可直接貼入 Gemini Canvas，或分別建立私人 Gem 與貼入任務資料。",
+    taskLabel: "任務資料",
+  };
+}
+
 function PromptPreviewModal({
   promptPackage,
   notice,
   onClose,
   onCopy,
 }: PromptPreviewModalProps) {
+  const kindLabels = promptPackage
+    ? promptPreviewKindLabel(promptPackage)
+    : null;
   return (
     <AnimatePresence>
-      {promptPackage && (
+      {promptPackage && kindLabels && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1333,10 +1367,10 @@ function PromptPreviewModal({
             <div className="flex items-start justify-between gap-3 border-b border-[#dfe8e2] p-5">
               <div>
                 <h2 id="canvas-prompt-preview-title" className="text-lg font-black">
-                  Gemini Canvas 提示詞預覽
+                  {kindLabels.title}
                 </h2>
                 <p className="mt-1 text-xs font-bold text-zinc-500">
-                  一份提示詞包含全部節次教案及每節學習單；可直接貼入 Gemini Canvas，或分別建立私人 Gem 與貼入完整單元任務。
+                  {kindLabels.subtitle}
                 </p>
               </div>
               <button
@@ -1369,8 +1403,8 @@ function PromptPreviewModal({
                   value: promptPackage.gemInstructions,
                 },
                 {
-                  label: "完整單元任務",
-                  copyLabel: "完整單元任務",
+                  label: kindLabels.taskLabel,
+                  copyLabel: kindLabels.taskLabel,
                   value: promptPackage.lessonTaskPrompt,
                 },
               ].map((section) => (
@@ -1719,7 +1753,8 @@ export default function CourseIdeationApp({
   const [promptPreview, setPromptPreview] =
     useState<LessonPromptPackage | null>(null);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
-  const [canvasGenerating, setCanvasGenerating] = useState(false);
+  const [canvasGeneratingKind, setCanvasGeneratingKind] =
+    useState<UnitCanvasDocumentKind | null>(null);
   const [keywordDraft, setKeywordDraft] = useState("");
   const [busyAction, setBusyAction] = useState<AiAction | null>(null);
   const [pendingAction, setPendingAction] = useState<AiAction | null>(null);
@@ -4148,7 +4183,11 @@ export default function CourseIdeationApp({
   const copyUnitPrompt = () => {
     const promptPackage = createPromptPackage();
     if (promptPackage) {
-      void copyPromptText(promptPackage, promptPackage.fullPrompt, "完整提示詞");
+      void copyPromptText(
+        promptPackage,
+        promptPackage.fullPrompt,
+        "教師備課提示詞",
+      );
     }
   };
 
@@ -4161,7 +4200,7 @@ export default function CourseIdeationApp({
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `NPDL-${input.unitName}-${unitBlueprint.lessons.length}節完整教案與學習單-Gemini-Canvas提示詞.md`
+    anchor.download = `NPDL-${input.unitName}-${unitBlueprint.lessons.length}節教師備課教案-Gemini-Canvas提示詞.md`
       .replace(/[\\/:*?"<>|]/g, "-");
     document.body.append(anchor);
     anchor.click();
@@ -4179,32 +4218,78 @@ export default function CourseIdeationApp({
     }
   };
 
-  const openGeminiCanvasAndGenerate = async () => {
-    if (!canvasReady || canvasGenerating) return;
+  const previewWorksheetPrompt = () => {
+    const promptPackage = createWorksheetPromptPackage();
+    if (promptPackage) {
+      setPromptPreview(promptPackage);
+      setCopyNotice(null);
+    }
+  };
+
+  const copyWorksheetPrompt = () => {
+    const promptPackage = createWorksheetPromptPackage();
+    if (promptPackage) {
+      void copyPromptText(
+        promptPackage,
+        promptPackage.fullPrompt,
+        "學習單提示詞",
+      );
+    }
+  };
+
+  const downloadWorksheetPrompt = () => {
     const promptPackage = createWorksheetPromptPackage();
     if (!promptPackage || !unitBlueprint) return;
+    const blob = new Blob([promptPackage.fullPrompt], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `NPDL-${input.unitName}-${unitBlueprint.lessons.length}節學習單-Gemini-Canvas提示詞.md`
+      .replace(/[\\/:*?"<>|]/g, "-");
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setError(null);
+  };
 
-    setCanvasGenerating(true);
+  const openGeminiCanvasDocument = async (kind: UnitCanvasDocumentKind) => {
+    if (!canvasReady || canvasGeneratingKind) return;
+    const promptPackage =
+      kind === "teacher_prep"
+        ? createPromptPackage()
+        : createWorksheetPromptPackage();
+    if (!promptPackage || !unitBlueprint) return;
+
+    const statusLessonId =
+      kind === "teacher_prep" ? "unit-all" : "unit-worksheets";
+    const progressLabel =
+      kind === "teacher_prep" ? "教師備課教案" : "學生學習單";
+
+    setCanvasGeneratingKind(kind);
     setCopyNotice(null);
     setError(null);
 
     try {
       if (settings.geminiKey.trim()) {
-        setCopyNotice("正在透過 Gemini 產生全部節次學習單…");
+        setCopyNotice(`正在透過 Gemini 產生全部節次${progressLabel}…`);
       }
-      const result = await launchUnitWorksheetsInCanvas({
+      const result = await launchUnitDocumentInCanvas({
         prompt: promptPackage.fullPrompt,
         unitName: input.unitName,
         lessonCount: unitBlueprint.lessons.length,
+        kind,
         geminiKey: settings.geminiKey,
         model: settings.model,
         onProgress: (progress) => {
           setCopyNotice(
-            `正在產生全部節次學習單…（已收到 ${progress.receivedChars.toLocaleString()} 字）`,
+            `正在產生全部節次${progressLabel}…（已收到 ${progress.receivedChars.toLocaleString()} 字）`,
           );
         },
       });
-      updateLessonPromptStatus("unit-all", {
+      updateLessonPromptStatus(statusLessonId, {
         generatedExternally: result.mode === "generated",
         lastCopiedAt: Date.now(),
       });
@@ -4218,7 +4303,7 @@ export default function CourseIdeationApp({
       setError(toUserErrorMessage(caught));
       setCopyNotice(null);
     } finally {
-      setCanvasGenerating(false);
+      setCanvasGeneratingKind(null);
     }
   };
 
@@ -4441,6 +4526,9 @@ export default function CourseIdeationApp({
   const unitPromptGenerated = lessonPromptStatus.find(
     (status) => status.lessonId === "unit-all",
   )?.generatedExternally;
+  const worksheetPromptGenerated = lessonPromptStatus.find(
+    (status) => status.lessonId === "unit-worksheets",
+  )?.generatedExternally;
 
   const alignmentStatus: WorkflowStepStatus = busyAction === "align"
     ? "working"
@@ -4618,7 +4706,7 @@ export default function CourseIdeationApp({
                           label: unitBlueprint
                             ? "重新產生單元節次藍圖"
                             : "AI 產生單元節次藍圖",
-                          description: "依已確認的證據倒推節次、學習單與完整 Gemini Canvas 提示詞。",
+                          description: "依已確認的證據倒推節次，並分開準備教師備課與學習單的 Gemini Canvas 提示詞。",
                           tone: "indigo",
                           icon: Map,
                           disabled: unitConstraintErrors.length > 0,
@@ -7426,13 +7514,13 @@ export default function CourseIdeationApp({
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div>
                             <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
-                              Gemini Canvas · 完整單元
+                              Gemini Canvas · 分開交付
                             </p>
                             <h3 className="mt-1 text-lg font-black text-emerald-950">
-                              {unitBlueprint.lessons.length} 節完整教案與學習單提示詞已準備
+                              {unitBlueprint.lessons.length} 節教師備課與學習單提示詞已分開準備
                             </h3>
                             <p className="mt-1 text-xs font-medium leading-6 text-emerald-800">
-                              一次貼入 Gemini，即可產生全部節次教案，以及每節分為「知識基礎」與「NPDL 子向度思考」的學習單；後續直接在 Gemini 內修改。
+                              教師備課教案與學生學習單各有獨立提示詞；請到頁面底部「交付中心」分別預覽、複製、下載或開啟 Canvas。
                             </p>
                           </div>
                         </div>
@@ -7976,7 +8064,7 @@ export default function CourseIdeationApp({
                           : "完成診斷題組與節次藍圖後可進入課後"}
                       </h2>
                       <p className="mt-1 max-w-3xl text-xs font-bold leading-6 text-emerald-800">
-                        Gemini Canvas 完整提示詞與評量工作室交接集中在這裡；「開啟 Canvas 產生學習單」會開啟 Canvas 並帶入學習單提示詞，有 API Key 時可直接產生全部節次學習單。
+                        教師備課教案與學生學習單分開交付；各自可預覽、複製、下載 Markdown，或開啟 Gemini Canvas 產生。有 API Key 時可直接產生對應文件。
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -7991,89 +8079,183 @@ export default function CourseIdeationApp({
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-3 lg:grid-cols-2">
-                    <article className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="text-sm font-black text-emerald-950">
-                            Gemini Canvas
-                          </h3>
-                          <p className="mt-1 text-xs font-bold leading-6 text-emerald-800">
-                            {unitBlueprint
-                              ? `${unitBlueprint.lessons.length} 節完整教案與學習單提示詞`
-                              : "確認節次藍圖後開放完整提示詞。"}
-                          </p>
+                  <div className="mt-5 space-y-3">
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <article className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className="text-sm font-black text-emerald-950">
+                              教師備課教案
+                            </h3>
+                            <p className="mt-1 text-xs font-bold leading-6 text-emerald-800">
+                              {unitBlueprint
+                                ? `${unitBlueprint.lessons.length} 節完整逐節教案提示詞（不含學習單）`
+                                : "確認節次藍圖後開放教師備課提示詞。"}
+                            </p>
+                          </div>
+                          {unitPromptGenerated && (
+                            <span className="shrink-0 rounded-full bg-emerald-200 px-3 py-1 text-[10px] font-black text-emerald-950">
+                              已在外部產生
+                            </span>
+                          )}
                         </div>
-                        {unitPromptGenerated && (
-                          <span className="shrink-0 rounded-full bg-emerald-200 px-3 py-1 text-[10px] font-black text-emerald-950">
-                            已在外部產生
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-3 grid gap-2">
-                        <button
-                          type="button"
-                          onClick={previewUnitPrompt}
-                          disabled={!canvasReady}
-                          className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <FileText className="h-4 w-4" />
-                          預覽完整提示詞
-                        </button>
-                        <button
-                          type="button"
-                          onClick={copyUnitPrompt}
-                          disabled={!canvasReady}
-                          className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-800 px-4 text-xs font-black text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <Clipboard className="h-4 w-4" />
-                          複製完整單元
-                        </button>
-                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                        <div className="mt-3 grid gap-2">
                           <button
                             type="button"
-                            onClick={downloadUnitPrompt}
+                            onClick={previewUnitPrompt}
                             disabled={!canvasReady}
                             className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            <Download className="h-4 w-4" />
-                            下載 Markdown
+                            <FileText className="h-4 w-4" />
+                            預覽備課提示詞
                           </button>
                           <button
                             type="button"
-                            onClick={() => void openGeminiCanvasAndGenerate()}
-                            disabled={!canvasReady || canvasGenerating}
+                            onClick={copyUnitPrompt}
+                            disabled={!canvasReady}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-800 px-4 text-xs font-black text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <Clipboard className="h-4 w-4" />
+                            複製備課提示詞
+                          </button>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <button
+                              type="button"
+                              onClick={downloadUnitPrompt}
+                              disabled={!canvasReady}
+                              className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Download className="h-4 w-4" />
+                              下載 Markdown
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void openGeminiCanvasDocument("teacher_prep")
+                              }
+                              disabled={!canvasReady || Boolean(canvasGeneratingKind)}
+                              className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {canvasGeneratingKind === "teacher_prep" ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <ExternalLink className="h-4 w-4" />
+                              )}
+                              {canvasGeneratingKind === "teacher_prep"
+                                ? "正在產生…"
+                                : "開啟 Canvas 產生教案"}
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const status = lessonPromptStatus.find(
+                                (candidate) => candidate.lessonId === "unit-all",
+                              );
+                              updateLessonPromptStatus("unit-all", {
+                                generatedExternally:
+                                  !status?.generatedExternally,
+                              });
+                            }}
+                            disabled={!canvasReady}
                             className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            {canvasGenerating ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <ExternalLink className="h-4 w-4" />
-                            )}
-                            {canvasGenerating ? "正在產生…" : "開啟 Canvas 產生學習單"}
+                            <Check className="h-4 w-4" />
+                            {unitPromptGenerated
+                              ? "取消外部標記"
+                              : "標記外部產生"}
                           </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const status = lessonPromptStatus.find(
-                              (candidate) => candidate.lessonId === "unit-all",
-                            );
-                            updateLessonPromptStatus("unit-all", {
-                              generatedExternally:
-                                !status?.generatedExternally,
-                            });
-                          }}
-                          disabled={!canvasReady}
-                          className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 text-xs font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <Check className="h-4 w-4" />
-                          {unitPromptGenerated
-                            ? "取消外部標記"
-                            : "標記外部產生"}
-                        </button>
-                      </div>
-                    </article>
+                      </article>
+
+                      <article className="rounded-xl border border-sky-200 bg-sky-50/70 p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className="text-sm font-black text-sky-950">
+                              學生學習單
+                            </h3>
+                            <p className="mt-1 text-xs font-bold leading-6 text-sky-800">
+                              {unitBlueprint
+                                ? `${unitBlueprint.lessons.length} 節學習單與教師判讀指引提示詞（不含教案）`
+                                : "確認節次藍圖後開放學習單提示詞。"}
+                            </p>
+                          </div>
+                          {worksheetPromptGenerated && (
+                            <span className="shrink-0 rounded-full bg-sky-200 px-3 py-1 text-[10px] font-black text-sky-950">
+                              已在外部產生
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-3 grid gap-2">
+                          <button
+                            type="button"
+                            onClick={previewWorksheetPrompt}
+                            disabled={!canvasReady}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-sky-300 bg-white px-4 text-xs font-black text-sky-950 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <FileText className="h-4 w-4" />
+                            預覽學習單提示詞
+                          </button>
+                          <button
+                            type="button"
+                            onClick={copyWorksheetPrompt}
+                            disabled={!canvasReady}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-800 px-4 text-xs font-black text-white hover:bg-sky-900 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <Clipboard className="h-4 w-4" />
+                            複製學習單提示詞
+                          </button>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <button
+                              type="button"
+                              onClick={downloadWorksheetPrompt}
+                              disabled={!canvasReady}
+                              className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-sky-300 bg-white px-4 text-xs font-black text-sky-950 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Download className="h-4 w-4" />
+                              下載 Markdown
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void openGeminiCanvasDocument("worksheets")
+                              }
+                              disabled={!canvasReady || Boolean(canvasGeneratingKind)}
+                              className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-sky-300 bg-white px-4 text-xs font-black text-sky-950 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {canvasGeneratingKind === "worksheets" ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <ExternalLink className="h-4 w-4" />
+                              )}
+                              {canvasGeneratingKind === "worksheets"
+                                ? "正在產生…"
+                                : "開啟 Canvas 產生學習單"}
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const status = lessonPromptStatus.find(
+                                (candidate) =>
+                                  candidate.lessonId === "unit-worksheets",
+                              );
+                              updateLessonPromptStatus("unit-worksheets", {
+                                generatedExternally:
+                                  !status?.generatedExternally,
+                              });
+                            }}
+                            disabled={!canvasReady}
+                            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-sky-300 bg-white px-4 text-xs font-black text-sky-950 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <Check className="h-4 w-4" />
+                            {worksheetPromptGenerated
+                              ? "取消外部標記"
+                              : "標記外部產生"}
+                          </button>
+                        </div>
+                      </article>
+                    </div>
 
                     <article className="rounded-xl border border-[#b9ccc2] bg-[#f7faf8] p-4">
                       <h3 className="text-sm font-black text-[#173f36]">
