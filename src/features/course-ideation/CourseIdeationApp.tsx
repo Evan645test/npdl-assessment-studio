@@ -1329,12 +1329,12 @@ function promptPreviewKindLabel(promptPackage: LessonPromptPackage): {
   }
   if (promptPackage.lessonId === "unit-prep-coach-gem") {
     return {
-      title: "備課諮詢 Gem 建立包預覽",
+      title: "備課諮詢 Gem 指令預覽",
       subtitle:
-        "複製「Gem 自訂指令」與「本單元設計錨點」到 Gemini Gem；課堂實施問題的建議會錨定校準、學習終點與評量證據。",
-      taskLabel: "建立說明與設計錨點",
-      fullLabel: "完整建立包",
-      gemLabel: "Gem 自訂指令",
+        "一鍵複製後，整段貼進 Gemini Gem「自訂指令」即可使用；已內嵌校準、學習終點、評量證據與節次藍圖，無需另附檔。",
+      taskLabel: "建立步驟（僅供參考）",
+      fullLabel: "完整建立說明＋指令",
+      gemLabel: "一鍵貼上用｜Gem 自訂指令（含設計錨點）",
     };
   }
   if (promptPackage.lessonId === "unit-all") {
@@ -4260,18 +4260,7 @@ export default function CourseIdeationApp({
       void copyPromptText(
         promptPackage,
         promptPackage.gemInstructions,
-        "備課諮詢 Gem 指令",
-      );
-    }
-  };
-
-  const copyPrepCoachDesignAnchors = () => {
-    const promptPackage = createPrepCoachGemPackage();
-    if (promptPackage) {
-      void copyPromptText(
-        promptPackage,
-        promptPackage.lessonTaskPrompt,
-        "本單元設計錨點與建立說明",
+        "備課諮詢 Gem 指令（含設計錨點）",
       );
     }
   };
@@ -4279,13 +4268,13 @@ export default function CourseIdeationApp({
   const downloadPrepCoachGemPackage = () => {
     const promptPackage = createPrepCoachGemPackage();
     if (!promptPackage || !unitBlueprint) return;
-    const blob = new Blob([promptPackage.fullPrompt], {
+    const blob = new Blob([promptPackage.gemInstructions], {
       type: "text/markdown;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `NPDL-${input.unitName}-備課諮詢Gem建立包.md`.replace(
+    anchor.download = `NPDL-${input.unitName}-備課諮詢Gem指令.md`.replace(
       /[\\/:*?"<>|]/g,
       "-",
     );
@@ -4299,7 +4288,7 @@ export default function CourseIdeationApp({
   const openGeminiGemsManager = () => {
     window.open("https://gemini.google.com/gems/view", "_blank", "noopener,noreferrer");
     setCopyNotice(
-      "已開啟 Gemini Gem 管理頁。請先複製「Gem 指令」與「設計錨點」，再新增私人 Gem。",
+      "已開啟 Gemini Gem 管理頁。請把剛複製的「Gem 指令（含設計錨點）」整段貼進自訂指令即可，無需另附檔。",
     );
   };
 
@@ -8257,18 +8246,9 @@ export default function CourseIdeationApp({
                             備課諮詢 Gem
                           </h4>
                           <p className="mt-1 text-[11px] font-bold leading-5 text-emerald-800">
-                            建立私人 Gem 後，課堂實施問題（時間不夠、學生卡關、證據不足等）可向它提問；回答會錨定本單元已完成的校準、學習終點、評量證據與節次藍圖。
+                            一鍵複製後，整段貼進 Gemini Gem「自訂指令」即可使用；已內嵌校準、學習終點、評量證據與節次藍圖，不必另附檔。課堂中可直接問時間不夠、學生卡關、證據不足等實施問題。
                           </p>
                           <div className="mt-3 grid gap-2">
-                            <button
-                              type="button"
-                              onClick={previewPrepCoachGem}
-                              disabled={!canvasReady}
-                              className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-[11px] font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                              預覽 Gem 建立包
-                            </button>
                             <button
                               type="button"
                               onClick={copyPrepCoachGemInstructions}
@@ -8276,18 +8256,18 @@ export default function CourseIdeationApp({
                               className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-800 px-3 text-[11px] font-black text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               <Clipboard className="h-3.5 w-3.5" />
-                              複製 Gem 指令
+                              一鍵複製 Gem 指令（含設計錨點）
                             </button>
-                            <button
-                              type="button"
-                              onClick={copyPrepCoachDesignAnchors}
-                              disabled={!canvasReady}
-                              className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-[11px] font-black text-emerald-950 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              <Clipboard className="h-3.5 w-3.5" />
-                              複製設計錨點
-                            </button>
-                            <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="grid gap-2 sm:grid-cols-3">
+                              <button
+                                type="button"
+                                onClick={previewPrepCoachGem}
+                                disabled={!canvasReady}
+                                className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-[11px] font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <FileText className="h-3.5 w-3.5" />
+                                預覽
+                              </button>
                               <button
                                 type="button"
                                 onClick={downloadPrepCoachGemPackage}
@@ -8295,7 +8275,7 @@ export default function CourseIdeationApp({
                                 className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-[11px] font-black text-emerald-950 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
                               >
                                 <Download className="h-3.5 w-3.5" />
-                                下載建立包
+                                下載指令
                               </button>
                               <button
                                 type="button"
@@ -8304,7 +8284,7 @@ export default function CourseIdeationApp({
                                 className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-[11px] font-black text-emerald-950 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
                               >
                                 <ExternalLink className="h-3.5 w-3.5" />
-                                開啟 Gem 管理
+                                開啟 Gem
                               </button>
                             </div>
                           </div>

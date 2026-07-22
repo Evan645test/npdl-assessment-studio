@@ -590,13 +590,19 @@ describe("learning design project", () => {
     );
     expect(prepCoachGemPackage.lessonId).toBe("unit-prep-coach-gem");
     expect(prepCoachGemPackage.gemInstructions).toContain("備課諮詢 Gem");
-    expect(prepCoachGemPackage.gemInstructions).toContain("設計錨點");
-    expect(prepCoachGemPackage.fullPrompt).toContain("本單元設計錨點");
-    expect(prepCoachGemPackage.fullPrompt).toContain("desiredResults");
-    expect(prepCoachGemPackage.fullPrompt).toContain("evidencePlan");
-    expect(prepCoachGemPackage.fullPrompt).toContain("unitBlueprint");
-    expect(prepCoachGemPackage.fullPrompt).toContain("不得要求或輸出學生姓名");
+    expect(prepCoachGemPackage.gemInstructions).toContain("已內嵌於 Gem 指令");
+    expect(prepCoachGemPackage.gemInstructions).toContain("無需另附檔");
+    expect(prepCoachGemPackage.gemInstructions).toContain("desiredResults");
+    expect(prepCoachGemPackage.gemInstructions).toContain("evidencePlan");
+    expect(prepCoachGemPackage.gemInstructions).toContain("unitBlueprint");
+    expect(prepCoachGemPackage.gemInstructions).toContain("alignment");
+    expect(prepCoachGemPackage.gemInstructions).toContain("不得要求或輸出學生姓名");
     expect(prepCoachGemPackage.gemInstructions).toContain("不要輸出 API Key");
+    expect(prepCoachGemPackage.lessonTaskPrompt).toContain("一鍵複製");
+    expect(prepCoachGemPackage.lessonTaskPrompt).not.toContain('"desiredResults"');
+    expect(prepCoachGemPackage.fullPrompt).toContain(
+      prepCoachGemPackage.gemInstructions,
+    );
 
     const staleProject: LearningDesignProjectV1 = {
       ...project,
