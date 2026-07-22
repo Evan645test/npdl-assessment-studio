@@ -1367,22 +1367,17 @@ ${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
 - 課後 Q1–Q4 必須使用新資料、新限制或新情境檢查遷移。
 - 學科成功指標規準與 6Cs 官方進程必須分開呈現。`;
 
-const UNIT_WORKSHEET_GEM_INSTRUCTIONS = `你是熟悉台灣 108 課綱、NPDL 深度學習、逆向設計與形成性評量的資深教學設計者。
-請直接在 Gemini Canvas 建立一份繁體中文「全部節次學習單」文件，一次完成資料中列出的全部節次，不得只產生其中一節，也不得要求教師逐節重新下指令。
+const UNIT_STUDENT_WORKSHEET_GEM_INSTRUCTIONS = `你是熟悉台灣 108 課綱、NPDL 深度學習、逆向設計與形成性評量的資深教學設計者。
+請直接在 Gemini Canvas 建立一份繁體中文「全部節次｜學生版學習單」文件，一次完成資料中列出的全部節次，不得只產生其中一節，也不得要求教師逐節重新下指令。
 
-本文件只分兩個版本，不得再產出教案流程表或其他額外文類：
-1. 學生版學習單（可直接列印發給學生）
-2. 教師參考解答版（教師用，含參考答案與判讀要點）
-產出標準＝學生版列印即可作答；教師版可對照批改與即時調整教學。貼到 Google 文件／Word 後不必再補標題或欄位。
+本任務只產出學生版學習單（可直接列印發給學生），不要產出教師參考解答、教案流程表或其他文類。
+學生版全程不得出現參考答案、標準答案、教師判語或教學決策。
+產出標準＝列印即可作答：版面完整、欄位齊全、表格有完整標題與表頭、作答空間足夠。
 ${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
 
-文件固定結構（順序不可改）：
-
-══════════════════════════════════
-第一部分｜學生版學習單（全部節次）
-══════════════════════════════════
-先給單元封面與目錄：年級、科目、單元名稱、總節數、主要 6Cs 子向度；以表格列出「節次｜標題｜分鐘｜學習單頁次」。
-再依節次順序產出每一節學生版。學生版全程不得出現參考答案、標準答案、教師判語或教學決策。
+文件固定結構：
+1. 單元封面與目錄：年級、科目、單元名稱、總節數、主要 6Cs 子向度；以表格列出「節次｜標題｜分鐘｜學習單頁次」。
+2. 依節次順序產出每一節學生版。
 
 【每節學生版｜可直接列印格式】
 必須依序包含下列區塊，標題文字不得省略或改寫成摘要：
@@ -1408,28 +1403,41 @@ E. 「B. NPDL 子向度思考」區（3–4 題）：
      並另附 | 我選擇此等級的理由 | 下一步我要做的一件具體行動 |。
 F. 頁尾：本節完成檢查清單（3–5 項可勾選短句）與「本節我還想問的問題」空白欄。
 
-══════════════════════════════════
-第二部分｜教師參考解答版（全部節次）
-══════════════════════════════════
-開頭註明「教師用／不發給學生」。依與學生版相同的節次與題號順序，逐節提供參考解答。
-
-【每節教師參考解答版】
-- 標題必須寫「教師參考解答版｜第○節｜（節次標題）」。
-- 先用 2–4 句說明本節期望看見的整體表現。
-- 再以完整表頭表格逐題呈現，欄位不得省略：
-  | 題號 | 區塊（知識基礎／NPDL） | 參考解答或可接受回應特徵 | 對應成功指標 | 可觀察證據 | 常見迷思或不足表現 | 未達標時的即時教學決策 |
-- 自我判讀題須提供：各等級典型證據樣貌，以及教師如何據學生自評與作品交叉核對。
-- 不得改動學生版題號、題幹順序；教師版是對照解答，不是另一套新題。
-
 列印與品質規則（強制）：
 - 所有表格都必須有完整表頭列；禁止無標題欄、只有分隔線、或「（表格）」佔位文字。
 - 表格欄名必須為可直接理解的繁體中文。
 - 學生版必須自給自足：列印後即可作答，不依賴外部連結或不存在的附件。
 - 必須完整產生資料中的每一節；節次不可合併、刪除或新增。
-- 每節學生版都必須同時包含「知識基礎」與「NPDL 子向度思考」兩區。
-- 知識基礎與 NPDL 子向度思考必須分開判讀；學科成功指標規準不得與 6Cs 官方進程混為一體。
+- 每節都必須同時包含「知識基礎」與「NPDL 子向度思考」兩區。
 - 所有課綱代碼、成功指標、節次順序與受控 ID 都是不可改寫的設計錨點；不得虛構學生個資或不存在的附件。
-- 優先黑白列印友善；勾選框可用 □ 表示。`;
+- 優先黑白列印友善；勾選框可用 □ 表示。
+- 不要產出教師參考解答版。`;
+
+const UNIT_TEACHER_ANSWER_KEY_GEM_INSTRUCTIONS = `你是熟悉台灣 108 課綱、NPDL 深度學習、逆向設計與形成性評量的資深教學設計者。
+請直接在 Gemini Canvas 建立一份繁體中文「全部節次｜教師參考解答版」文件，一次完成資料中列出的全部節次，不得只產生其中一節，也不得要求教師逐節重新下指令。
+
+本任務只產出教師參考解答版（教師用／不發給學生），不要產出學生版空白學習單、教案流程表或其他文類。
+教師版必須與學生版使用相同的節次順序與題號結構，作為對照解答，不是另一套新題。
+${TAIWAN_HIGH_SCHOOL_FEASIBILITY_PROMPT}
+
+文件固定結構：
+1. 開頭註明「教師用／不發給學生」，並列出單元、總節數、主要 6Cs 子向度。
+2. 依節次順序，逐節提供參考解答。
+
+【每節教師參考解答版】
+- 標題必須寫「教師參考解答版｜第○節｜（節次標題）」。
+- 先用 2–4 句說明本節期望看見的整體表現。
+- 再依學生版應有的題號，以完整表頭表格逐題呈現，欄位不得省略：
+  | 題號 | 區塊（知識基礎／NPDL） | 參考解答或可接受回應特徵 | 對應成功指標 | 可觀察證據 | 常見迷思或不足表現 | 未達標時的即時教學決策 |
+- 「知識基礎」與「NPDL 子向度思考」必須分開判讀；學科成功指標規準不得與 6Cs 官方進程混為一體。
+- 自我判讀題須提供：各等級典型證據樣貌，以及教師如何據學生自評與作品交叉核對。
+- 不得改動題號與題幹對應關係；若任務資料含學生版題幹摘要，請對齊引用。
+
+品質規則（強制）：
+- 所有表格都必須有完整表頭列。
+- 必須完整產生資料中的每一節；節次不可合併、刪除或新增。
+- 所有課綱代碼、成功指標、節次順序與受控 ID 都是不可改寫的設計錨點；不得虛構學生個資。
+- 不要產出可發給學生的空白學習單版面。`;
 
 const UNIT_PREP_COACH_GEM_BEHAVIOR = `你是本單元的「NPDL 備課諮詢 Gem」，專門協助台灣高中教師處理課堂實施問題。
 下方「本單元設計錨點」已完整內嵌於本自訂指令中，包含 108／6Cs 校準、學習終點、成功指標、評量證據、真實任務、節次藍圖、課程限制與實驗室脈絡。這就是你的唯一知識邊界；請直接使用，教師不必再上傳附件或另貼資料。
@@ -1724,18 +1732,11 @@ function assertUnitPromptProjectReady(project: LearningDesignProjectV1): void {
   }
 }
 
-export function buildUnitWorksheetPromptPackage(
-  project: LearningDesignProjectV1,
-  now = Date.now(),
-): LessonPromptPackage {
-  assertUnitPromptProjectReady(project);
+function buildUnitWorksheetTaskPayload(project: LearningDesignProjectV1) {
   const context = buildAssessmentDesignContext(project);
   if (!context) throw new Error("學習設計專案缺少必要脈絡。");
   const indicator = getIndicatorById(project.selectedIndicatorId);
-  const lessonWorksheetBriefs = buildLessonWorksheetBriefs(project);
-  const worksheetTaskPrompt = `【全部節次學習單任務資料】
-${JSON.stringify(
-  {
+  return {
     course: project.input,
     constraints: project.unitConstraints,
     labContext: buildTaiwanHighSchoolLabPrompt(project.input.subject),
@@ -1766,22 +1767,53 @@ ${JSON.stringify(
       : { id: project.selectedIndicatorId },
     fourElementDesign: project.alignment!.fourElements,
     evidenceItems: context.evidenceItems,
-    lessonWorksheetBriefs,
-  },
-  null,
-  2,
-)}
+    lessonWorksheetBriefs: buildLessonWorksheetBriefs(project),
+  };
+}
 
-請依固定格式，直接在 Canvas 一次產生「${project.input.unitName}」共 ${project.unitBlueprint!.lessons.length} 節學習單：先產出「第一部分｜學生版」（可直接列印），再產出「第二部分｜教師參考解答版」；表格都必須有完整標題與表頭；不要產生教案流程表。`;
+/** 學生版學習單（可直接列印）獨立提示詞。 */
+export function buildUnitWorksheetPromptPackage(
+  project: LearningDesignProjectV1,
+  now = Date.now(),
+): LessonPromptPackage {
+  assertUnitPromptProjectReady(project);
+  const payload = buildUnitWorksheetTaskPayload(project);
+  const worksheetTaskPrompt = `【全部節次｜學生版學習單任務資料】
+${JSON.stringify(payload, null, 2)}
+
+請依固定格式，直接在 Canvas 一次產生「${project.input.unitName}」共 ${project.unitBlueprint!.lessons.length} 節「學生版學習單」（可直接列印）；表格都必須有完整標題與表頭；不要產生教師參考解答版，不要產生教案流程表。`;
   return {
     version: LESSON_PROMPT_PACKAGE_VERSION,
     projectId: project.id,
-    lessonId: "unit-worksheets",
+    lessonId: "unit-worksheets-student",
     target: "gemini_canvas",
     generatedAt: now,
-    gemInstructions: UNIT_WORKSHEET_GEM_INSTRUCTIONS,
+    gemInstructions: UNIT_STUDENT_WORKSHEET_GEM_INSTRUCTIONS,
     lessonTaskPrompt: worksheetTaskPrompt,
-    fullPrompt: `${UNIT_WORKSHEET_GEM_INSTRUCTIONS}\n\n${worksheetTaskPrompt}`,
+    fullPrompt: `${UNIT_STUDENT_WORKSHEET_GEM_INSTRUCTIONS}\n\n${worksheetTaskPrompt}`,
+  };
+}
+
+/** 教師參考解答版獨立提示詞。 */
+export function buildUnitTeacherAnswerKeyPromptPackage(
+  project: LearningDesignProjectV1,
+  now = Date.now(),
+): LessonPromptPackage {
+  assertUnitPromptProjectReady(project);
+  const payload = buildUnitWorksheetTaskPayload(project);
+  const answerKeyTaskPrompt = `【全部節次｜教師參考解答版任務資料】
+${JSON.stringify(payload, null, 2)}
+
+請依固定格式，直接在 Canvas 一次產生「${project.input.unitName}」共 ${project.unitBlueprint!.lessons.length} 節「教師參考解答版」；表格都必須有完整表頭；必須與學生版題號對齊；不要產生學生版空白學習單，不要產生教案流程表。`;
+  return {
+    version: LESSON_PROMPT_PACKAGE_VERSION,
+    projectId: project.id,
+    lessonId: "unit-worksheets-answer-key",
+    target: "gemini_canvas",
+    generatedAt: now,
+    gemInstructions: UNIT_TEACHER_ANSWER_KEY_GEM_INSTRUCTIONS,
+    lessonTaskPrompt: answerKeyTaskPrompt,
+    fullPrompt: `${UNIT_TEACHER_ANSWER_KEY_GEM_INSTRUCTIONS}\n\n${answerKeyTaskPrompt}`,
   };
 }
 

@@ -6,6 +6,7 @@ import {
   buildLessonPromptPackage,
   buildUnitPromptPackage,
   buildUnitWorksheetPromptPackage,
+  buildUnitTeacherAnswerKeyPromptPackage,
   buildUnitPrepCoachGemPackage,
   isValidLearningDesignProject,
   parseEvidencePlan,
@@ -562,26 +563,31 @@ describe("learning design project", () => {
       project,
       1_700_000_300_000,
     );
-    expect(worksheetPromptPackage.lessonId).toBe("unit-worksheets");
-    expect(worksheetPromptPackage.fullPrompt).toContain("全部節次學習單任務資料");
-    expect(worksheetPromptPackage.fullPrompt).toContain("不要產生教案流程表");
-    expect(worksheetPromptPackage.fullPrompt).toContain("學生版");
-    expect(worksheetPromptPackage.fullPrompt).toContain("教師參考解答版");
+    expect(worksheetPromptPackage.lessonId).toBe("unit-worksheets-student");
+    expect(worksheetPromptPackage.fullPrompt).toContain("學生版學習單任務資料");
+    expect(worksheetPromptPackage.fullPrompt).toContain("不要產生教師參考解答版");
     expect(worksheetPromptPackage.fullPrompt).toContain("可直接列印");
     expect(worksheetPromptPackage.fullPrompt).toContain("完整表頭");
-    expect(worksheetPromptPackage.fullPrompt).toContain("班級");
-    expect(worksheetPromptPackage.fullPrompt).toContain("座號");
-    expect(worksheetPromptPackage.fullPrompt).toContain("teacherAnswerKeyRequirements");
     expect(worksheetPromptPackage.fullPrompt).not.toContain("完整單元逐節教案");
     expect(worksheetPromptPackage.fullPrompt).toContain(
       '"heading": "A. 知識基礎"',
     );
-    expect(worksheetPromptPackage.fullPrompt).toContain(
-      '"heading": "B. NPDL 子向度思考"',
+
+    const answerKeyPromptPackage = buildUnitTeacherAnswerKeyPromptPackage(
+      project,
+      1_700_000_350_000,
     );
-    expect(worksheetPromptPackage.fullPrompt).toContain('"officialProgression"');
+    expect(answerKeyPromptPackage.lessonId).toBe("unit-worksheets-answer-key");
+    expect(answerKeyPromptPackage.fullPrompt).toContain("教師參考解答版任務資料");
+    expect(answerKeyPromptPackage.fullPrompt).toContain("不要產生學生版空白學習單");
+    expect(answerKeyPromptPackage.fullPrompt).toContain("參考解答或可接受回應特徵");
+    expect(answerKeyPromptPackage.fullPrompt).not.toContain("可直接列印的學生版");
+    expect(answerKeyPromptPackage.fullPrompt).toContain(
+      '"heading": "A. 知識基礎"',
+    );
+    expect(answerKeyPromptPackage.fullPrompt).toContain('"officialProgression"');
     expect(
-      worksheetPromptPackage.fullPrompt.match(/"heading": "A\. 知識基礎"/g),
+      answerKeyPromptPackage.fullPrompt.match(/"heading": "A\. 知識基礎"/g),
     ).toHaveLength(3);
 
     const prepCoachGemPackage = buildUnitPrepCoachGemPackage(

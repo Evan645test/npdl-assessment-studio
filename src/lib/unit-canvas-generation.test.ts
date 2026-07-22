@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
+  buildUnitAnswerKeyDownloadFileName,
   buildUnitCanvasDownloadFileName,
   buildUnitWorksheetDownloadFileName,
   launchUnitDocumentInCanvas,
@@ -66,7 +67,10 @@ describe("unit-canvas-generation", () => {
       "NPDL-反應速率-4節教師備課教案.md",
     );
     expect(buildUnitWorksheetDownloadFileName("反應速率", 4)).toBe(
-      "NPDL-反應速率-4節學習單學生版與教師參考解答.md",
+      "NPDL-反應速率-4節學習單學生版.md",
+    );
+    expect(buildUnitAnswerKeyDownloadFileName("反應速率", 4)).toBe(
+      "NPDL-反應速率-4節學習單教師參考解答版.md",
     );
   });
 
@@ -114,7 +118,7 @@ describe("unit-canvas-generation", () => {
     expect(order).toEqual(["open", "generate", "copy"]);
     expect(result.mode).toBe("clipboard");
     expect(result.canvasOpened).toBe(true);
-    expect(result.message).toContain("已改為複製完整學習單提示詞");
+    expect(result.message).toContain("已改為複製完整學生版學習單提示詞");
     expect(copyTextToClipboard).toHaveBeenCalledWith("完整學習單提示詞");
     expect(downloadTextFile).not.toHaveBeenCalled();
   });

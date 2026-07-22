@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCanvasStudentWorksheetStarterPrompt,
+  buildCanvasTeacherAnswerKeyStarterPrompt,
   buildCanvasTeacherPrepStarterPrompt,
-  buildCanvasWorksheetStarterPrompt,
   buildGeminiCanvasUrl,
   GEMINI_CANVAS_URL,
   GEMINI_CANVAS_URL_PROMPT_LIMIT,
@@ -23,14 +24,21 @@ describe("gemini-canvas-launch", () => {
   });
 
   it("builds a worksheet starter prompt short enough for canvas url", () => {
-    const prompt = buildCanvasWorksheetStarterPrompt("反應速率", 4);
+    const prompt = buildCanvasStudentWorksheetStarterPrompt("反應速率", 4);
     expect(prompt).toContain("反應速率");
     expect(prompt).toContain("4 節");
     expect(prompt).toContain("學生版");
-    expect(prompt).toContain("教師參考解答版");
+    expect(prompt).toContain("不要產生教師參考解答");
     expect(prompt).toContain("不要產生教案流程表");
     expect(prompt.length).toBeLessThanOrEqual(GEMINI_CANVAS_URL_PROMPT_LIMIT);
     expect(buildGeminiCanvasUrl(prompt)).toContain("?prompt=");
+  });
+
+  it("builds a teacher answer-key starter prompt", () => {
+    const prompt = buildCanvasTeacherAnswerKeyStarterPrompt("反應速率", 4);
+    expect(prompt).toContain("教師參考解答版");
+    expect(prompt).toContain("不要產生學生版空白學習單");
+    expect(prompt.length).toBeLessThanOrEqual(GEMINI_CANVAS_URL_PROMPT_LIMIT);
   });
 
   it("builds a teacher-prep starter prompt that excludes worksheets", () => {

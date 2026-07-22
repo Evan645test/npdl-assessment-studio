@@ -5,8 +5,9 @@ import {
 } from "@/lib/ai/client";
 import { toUserErrorMessage } from "@/lib/errors";
 import {
+  buildCanvasStudentWorksheetStarterPrompt,
+  buildCanvasTeacherAnswerKeyStarterPrompt,
   buildCanvasTeacherPrepStarterPrompt,
-  buildCanvasWorksheetStarterPrompt,
   copyTextToClipboard,
   downloadTextFile,
   openGeminiCanvasWindow,
@@ -16,7 +17,12 @@ import {
 export const UNIT_CANVAS_GENERATION_MODEL = "gemini-2.5-flash";
 export const UNIT_CANVAS_MAX_OUTPUT_TOKENS = 65_536;
 
-export type UnitCanvasDocumentKind = "teacher_prep" | "worksheets";
+export type UnitCanvasDocumentKind =
+  | "teacher_prep"
+  | "worksheets_student"
+  | "worksheets_answer_key"
+  /** @deprecated Use worksheets_student */
+  | "worksheets";
 
 export function resolveUnitCanvasGenerationModel(selectedModel: string): string {
   if (
@@ -39,7 +45,14 @@ export function buildUnitWorksheetDownloadFileName(
   unitName: string,
   lessonCount: number,
 ): string {
-  return `NPDL-${unitName}-${lessonCount}節學習單學生版與教師參考解答.md`;
+  return `NPDL-${unitName}-${lessonCount}節學習單學生版.md`;
+}
+
+export function buildUnitAnswerKeyDownloadFileName(
+  unitName: string,
+  lessonCount: number,
+): string {
+  return `NPDL-${unitName}-${lessonCount}節學習單教師參考解答版.md`;
 }
 
 export async function generateUnitCanvasDocument(options: {
@@ -80,33 +93,58 @@ function canvasOpenHint(opened: boolean): string {
     : "若瀏覽器封鎖彈出視窗，請允許本站彈出視窗後再試，或手動開啟 https://gemini.google.com/canvas";
 }
 
+function normalizeKind(kind: UnitCanvasDocumentKind): Exclude<
+  UnitCanvasDocumentKind,
+  "worksheets"
+> {
+  return kind === "worksheets" ? "worksheets_student" : kind;
+}
+
 function starterPromptForKind(
-  kind: UnitCanvasDocumentKind,
+  kind: Exclude<UnitCanvasDocumentKind, "worksheets">,
   unitName: string,
   lessonCount: number,
 ): string {
-  return kind === "teacher_prep"
-    ? buildCanvasTeacherPrepStarterPrompt(unitName, lessonCount)
-    : buildCanvasWorksheetStarterPrompt(unitName, lessonCount);
+  if (kind === "teacher_prep") {
+    return buildCanvasTeacherPrepStarterPrompt(unitName, lessonCount);
+  }
+  if (kind === "worksheets_answer_key") {
+    return buildCanvasTeacherAnswerKeyStarterPrompt(unitName, lessonCount);
+  }
+  return buildCanvasStudentWorksheetStarterPrompt(unitName, lessonCount);
 }
 
 function downloadNameForKind(
-  kind: UnitCanvasDocumentKind,
+  kind: Exclude<UnitCanvasDocumentKind, "worksheets">,
   unitName: string,
   lessonCount: number,
 ): string {
-  return kind === "teacher_prep"
-    ? buildUnitCanvasDownloadFileName(unitName, lessonCount)
-    : buildUnitWorksheetDownloadFileName(unitName, lessonCount);
+  if (kind === "teacher_prep") {
+    return buildUnitCanvasDownloadFileName(unitName, lessonCount);
+  }
+  if (kind === "worksheets_answer_key") {
+    return buildUnitAnswerKeyDownloadFileName(unitName, lessonCount);
+  }
+  return buildUnitWorksheetDownloadFileName(unitName, lessonCount);
 }
 
-function labelForKind(kind: UnitCanvasDocumentKind): {
+function labelForKind(kind: Exclude<UnitCanvasDocumentKind, "worksheets">): {
   product: string;
   promptNoun: string;
 } {
-  return kind === "teacher_prep"
-    ? { product: "教師備課教案", promptNoun: "教師備課提示詞" }
-    : { product: "學習單（學生版＋教師參考解答版）", promptNoun: "學習單提示詞" };
+  if (kind === "teacher_prep") {
+    return { product: "教師備課教案", promptNoun: "教師備課提示詞" };
+  }
+  if (kind === "worksheets_answer_key") {
+    return {
+      product: "教師參考解答版",
+      promptNoun: "教師參考解答提示詞",
+    };
+  }
+  return {
+    product: "學生版學習單",
+    promptNoun: "學生版學習單提示詞",
+  };
 }
 
 export async function launchUnitDocumentInCanvas(options: {
@@ -118,12 +156,13 @@ export async function launchUnitDocumentInCanvas(options: {
   model?: string;
   onProgress?: GenerationOptions["onProgress"];
 }): Promise<UnitWorksheetLaunchResult> {
+  const kind = normalizeKind(options.kind);
   const starterPrompt = starterPromptForKind(
-    options.kind,
+    kind,
     options.unitName,
     options.lessonCount,
   );
-  const labels = labelForKind(options.kind);
+  const labels = labelForKind(kind);
 
   // Open Canvas in the same user-gesture turn so popup blockers do not
   // suppress the window after long async generation / clipboard work.
@@ -141,11 +180,7 @@ export async function launchUnitDocumentInCanvas(options: {
       });
       downloadTextFile(
         generated,
-        downloadNameForKind(
-          options.kind,
-          options.unitName,
-          options.lessonCount,
-        ),
+        downloadNameForKind(kind, options.unitName, options.lessonCount),
       );
       await copyTextToClipboard(generated);
       return {
@@ -172,7 +207,7 @@ export async function launchUnitDocumentInCanvas(options: {
   };
 }
 
-/** @deprecated Prefer launchUnitDocumentInCanvas({ kind: "worksheets" }) */
+/** @deprecated Prefer launchUnitDocumentInCanvas({ kind: "worksheets_student" }) */
 export async function launchUnitWorksheetsInCanvas(options: {
   prompt: string;
   unitName: string;
@@ -181,5 +216,8 @@ export async function launchUnitWorksheetsInCanvas(options: {
   model?: string;
   onProgress?: GenerationOptions["onProgress"];
 }): Promise<UnitWorksheetLaunchResult> {
-  return launchUnitDocumentInCanvas({ ...options, kind: "worksheets" });
+  return launchUnitDocumentInCanvas({
+    ...options,
+    kind: "worksheets_student",
+  });
 }
